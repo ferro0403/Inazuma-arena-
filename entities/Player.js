@@ -1,0 +1,28 @@
+export class Player {
+  constructor({ id, name, team, role, x, y, homeX, homeY, color, stats }) {
+    Object.assign(this, { id, name, team, role, x, y, homeX, homeY, color });
+    this.radius = role === 'goalkeeper' ? 18 : 15;
+    this.speed = role === 'goalkeeper' ? 105 : 145;
+    this.destination = null;
+    this.hasBall = false;
+    this.selected = false;
+    this.stats = { dribble: 45, tackle: 42, shoot: 44, save: 44, technique: 50, ...stats };
+    this.techniques = [];
+    this.stamina = 100;
+    this.tp = 50;
+  }
+
+  setDestination(x, y) { this.destination = { x, y }; }
+
+  update(dt) {
+    if (!this.destination) return;
+    const dx = this.destination.x - this.x;
+    const dy = this.destination.y - this.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance < 3) { this.destination = null; return; }
+    const step = Math.min(distance, this.speed * dt);
+    this.x += (dx / distance) * step;
+    this.y += (dy / distance) * step;
+    this.stamina = Math.max(0, this.stamina - dt * 0.8);
+  }
+}
