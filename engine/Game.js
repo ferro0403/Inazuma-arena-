@@ -168,6 +168,7 @@ export class Game {
     carrier.x = this.field.width / 2;
     carrier.y = restartTeam.side === 'bottom' ? this.field.height / 2 + 38 : this.field.height / 2 - 38;
     this.ball.attach(carrier);
+    this.clampBallForSafeReset('kickoff-reset');
     this.select(this.teams[0].players[3]);
     this.camera.centerOn(carrier);
   }
@@ -198,10 +199,28 @@ export class Game {
       if (player.destination) player.setDestination(this.clamp(player.destination));
     }
     this.ball.validatePosition({ x: this.field.width / 2, y: this.field.height / 2 });
+    if (this.shouldClampBallForState()) this.clampBallForSafeReset('validateWorldState');
+    this.camera.clamp();
+  }
+
+  shouldClampBallForState() {
+    return this.ball.state === 'possessed' || !!this.ball.carrier || this.matchState === 'restart';
+  }
+
+  clampBallForSafeReset(source = 'safe-reset') {
+    if (!Number.isFinite(this.ball.x) || !Number.isFinite(this.ball.y)) {
+      console.warn('Reset invalid ball before clamp', { source, x: this.ball.x, y: this.ball.y });
+      this.ball.x = this.field.width / 2;
+      this.ball.y = this.field.height / 2;
+      this.ball.vx = 0;
+      this.ball.vy = 0;
+      this.ball.speed = 0;
+      this.ball.setLoose();
+      return;
+    }
     const ballPoint = this.clamp(this.ball);
     this.ball.x = ballPoint.x;
     this.ball.y = ballPoint.y;
-    this.camera.clamp();
   }
 
   loop(now) {
@@ -299,6 +318,7 @@ export class Game {
     this.ball.state = type;
     this.ball.x = this.pendingRestart.point.x;
     this.ball.y = this.pendingRestart.point.y;
+    this.clampBallForSafeReset('restart-placement');
     const taker = type === 'goal_kick' ? team.players[0] : (this.nearestPlayer(team.players.filter(p => !p.isStunned(this.nowMs)), this.ball) || team.players[0]);
     taker.x = this.ball.x; taker.y = this.ball.y; taker.destination = null;
     this.ball.lastTouch = taker;
