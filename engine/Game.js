@@ -16,6 +16,8 @@ export class Game {
     this.field = { width: 900, height: 1500 };
     this.time = 0;
     this.paused = false;
+    this.nowMs = performance.now();
+    this.duelLockedUntil = 0;
     this.teams = [
       new Team('Raimon', 'bottom', { primary: '#ffd944', secondary: '#1d5fd0', keeper: '#39d98a' }),
       new Team('Alius', 'top', { primary: '#ee3434', secondary: '#171717', keeper: '#9f7cff' })
@@ -51,6 +53,7 @@ export class Game {
     const viewWidth = Math.min(620, Math.max(420, this.field.width * 0.62));
     const viewHeight = viewWidth * (this.canvas.height / this.canvas.width);
     this.camera.setViewport(viewWidth, Math.min(this.field.height, Math.max(560, viewHeight)));
+    this.view = { scale: this.canvas.width / this.camera.viewportWidth, offsetX: 0, offsetY: 0 };
   }
 
   start() {
@@ -67,15 +70,29 @@ export class Game {
     requestAnimationFrame(t => this.loop(t));
   }
 
-  select(player) { this.players.forEach(p => p.selected = false); this.selected = player; if (player) player.selected = true; }
-  commandMove(p) { this.selected?.setDestination(this.clamp(p)); this.preview = { from: this.selected, to: p }; }
-  passTo(target) { this.ball.kick(target, this.selected); }
+  select(player) {
+    if (player?.isStunned(this.nowMs)) return;
+    this.players.forEach(p => p.selected = false);
+    this.selected = player;
+    if (player) player.selected = true;
+  }
+  commandMove(p) {
+    if (!this.selected || this.selected.isStunned(this.nowMs)) return;
+    const point = this.clamp(p);
+    this.selected.setDestination(point);
+    this.preview = { from: this.selected, to: point };
+  }
+  passTo(target) {
+    if (!this.selected || !this.selected.hasBall || this.selected.isStunned(this.nowMs)) return;
+    this.ball.kick(this.clamp(target), this.selected);
+  }
   shoot() {
+    if (!this.selected || this.selected.isStunned(this.nowMs)) return;
     const shooter = this.selected, keeper = this.teams[1].players[0]; this.paused = true;
     this.shotSystem.start(shooter, keeper, goal => { if (goal) this.teams[0].score++; this.resetAfterShot(goal); this.paused = false; });
   }
   resetAfterShot(goal) {
-    this.players.forEach(p => { p.x = p.homeX; p.y = p.homeY; p.destination = null; p.hasBall = false; });
+    this.players.forEach(p => { p.x = p.homeX; p.y = p.homeY; p.destination = null; p.hasBall = false; p.stunnedUntil = 0; });
     const carrier = goal ? this.teams[1].players[3] : this.teams[1].players[0]; this.ball.attach(carrier); this.select(this.teams[0].players[3]);
   }
   isInOpponentGoalArea(p) { return p.y < 150 && p.x > 280 && p.x < 620; }
@@ -91,6 +108,7 @@ export class Game {
     return { x: Math.max(18, Math.min(this.field.width - 18, p.x)), y: Math.max(18, Math.min(this.field.height - 18, p.y)) };
   }
   validateWorldState(source = 'world') {
+    this.ball.validateState();
     for (const player of this.players) {
       player.validatePosition({ x: player.homeX, y: player.homeY });
       const clamped = this.clamp(player);
@@ -107,22 +125,48 @@ export class Game {
     this.ball.y = ballPoint.y;
     this.camera.clamp();
   }
-  loop(now) { const dt = Math.min(0.04, (now - this.last) / 1000); this.last = now; if (!this.paused) this.update(dt); this.draw(); requestAnimationFrame(t => this.loop(t)); }
+  loop(now) { const dt = Math.min(0.04, (now - this.last) / 1000); this.nowMs = now; this.last = now; if (!this.paused) this.update(dt); this.draw(); requestAnimationFrame(t => this.loop(t)); }
   update(dt) {
     this.time += dt; this.ai.update(this, dt); this.players.forEach(p => p.update(dt)); this.ball.update(dt); this.validateWorldState('update'); this.resolveLooseBall(); this.checkDuel();
     this.camera.follow(this.ball.carrier || this.ball || this.selected, dt); this.hud.update();
   }
   resolveLooseBall() {
-    if (this.ball.carrier || this.ball.target) return;
-    const p = this.players.find(pl => Math.hypot(pl.x - this.ball.x, pl.y - this.ball.y) < pl.radius + 14);
+    if (this.ball.carrier) return;
+    const p = this.players.find(pl => !pl.isStunned(this.nowMs) && !(pl === this.ball.lastKicker && this.nowMs < this.ball.pickupBlockedUntil) && Math.hypot(pl.x - this.ball.x, pl.y - this.ball.y) < pl.radius + 14);
     if (p) { this.players.forEach(x => x.hasBall = false); this.ball.attach(p); if (p.team === this.humanTeam) this.select(p); }
   }
   checkDuel() {
-    const carrier = this.ball.carrier; if (!carrier || carrier.role === 'goalkeeper') return;
-    const foe = this.players.find(p => p.team !== carrier.team && p.role === 'field' && Math.hypot(p.x - carrier.x, p.y - carrier.y) < p.radius + carrier.radius + 8);
+    const carrier = this.ball.carrier;
+    if (!carrier || carrier.role === 'goalkeeper' || carrier.isStunned(this.nowMs) || this.nowMs < this.duelLockedUntil || this.nowMs < carrier.duelCooldownUntil) return;
+    const foe = this.players.find(p => p.team !== carrier.team && p.role === 'field' && !p.isStunned(this.nowMs) && this.nowMs >= p.duelCooldownUntil && Math.hypot(p.x - carrier.x, p.y - carrier.y) < p.radius + carrier.radius + 8);
     if (!foe) return; this.paused = true; carrier.destination = null; foe.destination = null;
-    this.duelSystem.start(carrier, foe, winner => { this.players.forEach(p => p.hasBall = false); this.ball.attach(winner); if (winner.team === this.humanTeam) this.select(winner); this.paused = false; });
+    this.duelSystem.start(carrier, foe, ({ winner, loser }) => this.resolveDuel(carrier, foe, winner, loser));
   }
+  resolveDuel(attacker, defender, winner, loser) {
+    const now = this.nowMs || performance.now();
+    attacker.duelCooldownUntil = now + 1000;
+    defender.duelCooldownUntil = now + 1000;
+    loser.stunnedUntil = now + 1000;
+    loser.destination = null;
+    this.knockBackLoser(loser, winner);
+    this.players.forEach(p => p.hasBall = false);
+    this.ball.attach(winner);
+    if (winner.team === this.humanTeam) this.select(winner);
+    else if (this.selected === loser) this.select(this.players.find(p => p.team === this.humanTeam && !p.isStunned(now)) || null);
+    this.duelLockedUntil = now + 300;
+    this.paused = false;
+  }
+
+  knockBackLoser(loser, winner) {
+    const dx = loser.x - winner.x;
+    const dy = loser.y - winner.y;
+    const distance = Math.hypot(dx, dy);
+    const dir = Number.isFinite(distance) && distance > 0.0001 ? { x: dx / distance, y: dy / distance } : { x: 0, y: loser.team.side === 'bottom' ? 1 : -1 };
+    const point = this.clamp({ x: loser.x + dir.x * 42, y: loser.y + dir.y * 42 });
+    loser.x = point.x;
+    loser.y = point.y;
+  }
+
   draw() {
     const c = this.ctx, cam = this.camera;
     c.clearRect(0,0,this.canvas.width,this.canvas.height);
@@ -154,13 +198,17 @@ export class Game {
   drawPlayer(c,p) {
     const primary = p.role === 'goalkeeper' ? p.kit.keeper : p.kit.primary;
     const secondary = p.role === 'goalkeeper' ? '#ffffff' : p.kit.secondary;
+    const stunned = p.isStunned(this.nowMs);
     if (p.selected) { c.strokeStyle = '#fff56d'; c.lineWidth = 5; c.beginPath(); c.arc(p.x,p.y,p.radius+9,0,Math.PI*2); c.stroke(); }
+    if (stunned) { c.strokeStyle = '#7bdcff'; c.lineWidth = 4; c.beginPath(); c.arc(p.x,p.y-34,10,0,Math.PI*2); c.stroke(); }
     c.fillStyle = '#111'; c.fillRect(p.x-9,p.y+9,18,8);
+    c.globalAlpha = stunned ? 0.55 : 1;
     c.fillStyle = primary; c.fillRect(p.x-13,p.y-16,26,24);
     c.fillStyle = secondary; c.fillRect(p.x-13,p.y-2,26,10);
     c.fillStyle = '#f2c18d'; c.fillRect(p.x-8,p.y-27,16,13);
     c.strokeStyle = '#101010'; c.lineWidth = 2; c.strokeRect(p.x-13,p.y-16,26,24); c.strokeRect(p.x-8,p.y-27,16,13);
     c.fillStyle = '#ffffff'; c.font = 'bold 13px Trebuchet MS'; c.textAlign='center'; c.strokeStyle = '#102018'; c.lineWidth = 3; c.strokeText(p.name,p.x,p.y-33); c.fillText(p.name,p.x,p.y-33);
+    c.globalAlpha = 1;
     if (p.hasBall) { c.strokeStyle='#ffffff'; c.lineWidth = 3; c.beginPath(); c.arc(p.x,p.y,p.radius+14,0,Math.PI*2); c.stroke(); }
   }
   drawBall(c) { c.fillStyle = '#ffffff'; c.beginPath(); c.arc(this.ball.x,this.ball.y,8,0,Math.PI*2); c.fill(); c.strokeStyle='#111'; c.lineWidth = 2; c.stroke(); }

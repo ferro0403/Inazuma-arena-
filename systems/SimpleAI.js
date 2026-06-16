@@ -3,7 +3,7 @@ export class SimpleAI {
     for (const team of game.teams) {
       const attacking = game.ball.carrier?.team === team;
       for (const p of team.players) {
-        if (p.selected || p.hasBall) continue;
+        if (p.selected || p.hasBall || p.isStunned(game.nowMs)) continue;
         const dir = team.side === 'bottom' ? -1 : 1;
         let tx = p.homeX;
         let ty = p.homeY + (attacking ? 170 * dir : 45 * dir);

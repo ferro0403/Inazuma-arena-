@@ -10,13 +10,13 @@ export class Input {
   move(e) { if (!this.dragging || this.game.paused || !this.game.selected) return; this.game.preview = { from: this.game.selected, to: this.pos(e) }; }
   up(e) { if (this.game.paused) return; const p = this.pos(e); if (this.dragging && this.game.selected && Math.hypot(p.x - this.start.x, p.y - this.start.y) > 20) this.game.commandMove(p); this.dragging = false; this.game.preview = null; }
   handleTap(p) {
-    const hit = this.game.players.find(pl => Math.hypot(pl.x - p.x, pl.y - p.y) < pl.radius + 10);
+    const hit = this.game.players.find(pl => !pl.isStunned(this.game.nowMs) && Math.hypot(pl.x - p.x, pl.y - p.y) < pl.radius + 10);
     if (hit && hit.team === this.game.humanTeam) {
       if (this.game.selected?.hasBall && hit !== this.game.selected) this.game.passTo(hit);
       else this.game.select(hit);
       return;
     }
-    if (!this.game.selected) return;
+    if (!this.game.selected || this.game.selected.isStunned(this.game.nowMs)) return;
     if (this.game.selected.hasBall && this.game.isInOpponentGoalArea(p)) this.game.shoot();
     else if (this.game.selected.hasBall) this.game.passTo(p);
     else this.game.commandMove(p);

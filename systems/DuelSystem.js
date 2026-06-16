@@ -6,8 +6,10 @@ export class DuelSystem {
     ], choice => {
       const a = attacker.stats[choice.type] + Math.random() * 40;
       const d = defender.stats.tackle + Math.random() * 40;
-      const winner = a >= d ? attacker : defender;
-      this.ui.result(`${winner.name} wins possession!`, () => done(winner));
+      const attackerWins = a >= d;
+      const winner = attackerWins ? attacker : defender;
+      const loser = attackerWins ? defender : attacker;
+      this.ui.result(`${winner.name} wins possession! ${loser.name} is stunned.`, () => done({ winner, loser }));
     });
   }
 }

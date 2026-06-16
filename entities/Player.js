@@ -11,12 +11,20 @@ export class Player {
     this.techniques = [];
     this.stamina = 100;
     this.tp = 50;
+    this.duelCooldownUntil = 0;
+    this.stunnedUntil = 0;
   }
+
+  isStunned(now = performance.now()) { return now < this.stunnedUntil; }
 
   setDestination(x, y) {
     const next = typeof x === 'object' ? x : { x, y };
     if (!next || !Number.isFinite(next.x) || !Number.isFinite(next.y)) {
       console.warn('Rejected invalid player destination', { player: this.name, destination: next });
+      this.destination = null;
+      return;
+    }
+    if (this.isStunned()) {
       this.destination = null;
       return;
     }
@@ -33,6 +41,7 @@ export class Player {
 
   update(dt) {
     this.validatePosition();
+    if (this.isStunned()) { this.destination = null; return; }
     if (!this.destination) return;
     if (!Number.isFinite(this.destination.x) || !Number.isFinite(this.destination.y)) {
       console.warn('Cleared invalid player destination', { player: this.name, destination: this.destination });
