@@ -22,6 +22,8 @@ export class Game {
     this.pendingShotOutcome = null;
     this.goalResetAt = 0;
     this.pendingDistributionAt = 0;
+    this.aiDecision = 'idle';
+    this.tapMarker = null;
     this.teams = [
       new Team('Raimon', 'bottom', { primary: '#ffd944', secondary: '#1d5fd0', keeper: '#39d98a' }),
       new Team('Alius', 'top', { primary: '#ee3434', secondary: '#171717', keeper: '#9f7cff' })
@@ -81,14 +83,24 @@ export class Game {
     if (!this.selected || this.selected.isStunned(this.nowMs)) return;
     const point = this.clamp(p);
     this.selected.setDestination(point);
+    this.tapMarker = { x: point.x, y: point.y, until: this.nowMs + 500 };
     this.preview = { from: this.selected, to: point };
   }
 
   passTo(target) {
     if (!this.selected || !this.selected.hasBall || this.selected.isStunned(this.nowMs)) return;
+    this.passFrom(this.selected, target);
+  }
+
+  passFrom(player, target) {
+    if (!player || !player.hasBall || player.isStunned(this.nowMs)) return;
     const point = this.clamp(target);
-    this.ball.passTo(point, this.selected);
-    if (target?.team === this.selected.team && !target.isStunned(this.nowMs)) target.setDestination(point);
+    this.ball.passTo(point, player);
+    this.tapMarker = { x: point.x, y: point.y, until: this.nowMs + 450 };
+    if (target?.team === player.team && !target.isStunned(this.nowMs)) {
+      const lead = target.team.side === 'top' ? 35 : -35;
+      target.setDestination(this.clamp({ x: point.x, y: point.y + lead }));
+    }
   }
 
   shoot() {
@@ -101,17 +113,28 @@ export class Game {
     });
   }
 
+  startAIShot(shooter) {
+    const keeper = this.humanTeam.players[0];
+    const shotPower = shooter.stats.shoot + Math.random() * 45;
+    const savePower = keeper.stats.save + Math.random() * 45;
+    this.startShotTravel(shooter, keeper, shotPower > savePower);
+  }
+
   startShotTravel(shooter, keeper, goal) {
-    this.pendingShotOutcome = { goal, keeper };
-    const target = goal ? { x: this.field.width / 2, y: 12 } : { x: keeper.x, y: keeper.y + 16 };
+    this.pendingShotOutcome = { goal, keeper, shooterTeam: shooter.team };
+    const attackingTop = shooter.team.side === 'bottom';
+    const target = goal
+      ? { x: this.field.width / 2, y: attackingTop ? 12 : this.field.height - 12 }
+      : { x: keeper.x, y: keeper.y + (attackingTop ? 16 : -16) };
     this.ball.shootTo(this.clamp(target), shooter);
   }
 
-  resetAfterShot(goal) {
+  resetAfterShot(goal, scoringTeam = this.teams[0]) {
     this.players.forEach(p => { p.x = p.homeX; p.y = p.homeY; p.destination = null; p.hasBall = false; p.stunnedUntil = 0; });
-    const carrier = goal ? this.teams[1].players[3] : this.teams[0].players[3];
+    const restartTeam = goal ? this.teams.find(t => t !== scoringTeam) : this.teams[0];
+    const carrier = restartTeam.players[3];
     carrier.x = this.field.width / 2;
-    carrier.y = goal ? this.field.height / 2 - 38 : this.field.height / 2 + 38;
+    carrier.y = restartTeam.side === 'bottom' ? this.field.height / 2 + 38 : this.field.height / 2 - 38;
     this.ball.attach(carrier);
     this.select(this.teams[0].players[3]);
     this.camera.centerOn(carrier);
@@ -174,6 +197,7 @@ export class Game {
 
   updateTimers() {
     if (this.overlay?.until && this.nowMs >= this.overlay.until) this.overlay = null;
+    if (this.tapMarker?.until && this.nowMs >= this.tapMarker.until) this.tapMarker = null;
     if (this.pendingDistributionAt && this.nowMs >= this.pendingDistributionAt) {
       this.pendingDistributionAt = 0;
       this.distributeFromGoalkeeper();
@@ -181,17 +205,18 @@ export class Game {
     if (this.goalResetAt && this.nowMs >= this.goalResetAt) {
       this.goalResetAt = 0;
       this.paused = false;
-      this.resetAfterShot(true);
+      this.resetAfterShot(true, this.lastScoringTeam || this.teams[0]);
     }
   }
 
   resolveShotTravel() {
     if (this.ball.state !== 'shot' || this.ball.target || !this.pendingShotOutcome) return;
-    const { goal, keeper } = this.pendingShotOutcome;
+    const { goal, keeper, shooterTeam } = this.pendingShotOutcome;
     this.pendingShotOutcome = null;
     if (goal) {
       this.ball.markGoal();
-      this.teams[0].score++;
+      shooterTeam.score++;
+      this.lastScoringTeam = shooterTeam;
       this.overlay = { text: 'GOAL!', until: this.nowMs + 1000 };
       this.goalResetAt = this.nowMs + 1000;
       this.paused = true;
@@ -207,11 +232,12 @@ export class Game {
     const keeper = this.ball.carrier;
     if (!keeper || keeper.role !== 'goalkeeper') return;
     const teammates = keeper.team.players
-      .filter(p => p !== keeper && !p.isStunned(this.nowMs) && p.y > 210)
+      .filter(p => p !== keeper && !p.isStunned(this.nowMs) && (keeper.team.side === 'top' ? p.y > 210 : p.y < this.field.height - 210))
       .sort((a, b) => Math.hypot(a.x - keeper.x, a.y - keeper.y) - Math.hypot(b.x - keeper.x, b.y - keeper.y));
     const target = teammates[0] || { x: this.field.width / 2, y: this.field.height / 2 };
+    this.aiDecision = `${keeper.name}: distribute`;
     this.ball.passTo(this.clamp(target), keeper);
-    if (target.setDestination) target.setDestination(this.clamp({ x: target.x, y: target.y + 40 }));
+    if (target.setDestination) target.setDestination(this.clamp({ x: target.x, y: target.y + (keeper.team.side === 'top' ? 45 : -45) }));
   }
 
   resolveLooseBall() {
@@ -267,7 +293,7 @@ export class Game {
     c.translate(offsetX, offsetY);
     c.scale(scale, scale);
     c.translate(-cam.x, -cam.y);
-    this.drawField(c); this.drawPreview(c); this.players.forEach(p => this.drawPlayer(c,p)); this.drawBall(c);
+    this.drawField(c); this.drawPreview(c); this.drawTapMarker(c); this.players.forEach(p => this.drawPlayer(c,p)); this.drawBall(c);
     c.restore();
     this.drawOverlay(c);
   }
@@ -288,7 +314,23 @@ export class Game {
     for (let x=382; x<=518; x+=18) { c.beginPath(); c.moveTo(x,4); c.lineTo(x,16); c.moveTo(x,this.field.height-16); c.lineTo(x,this.field.height-4); c.stroke(); }
   }
 
-  drawPreview(c) { const p = this.preview || (this.selected?.destination && { from: this.selected, to: this.selected.destination }); if (!p) return; c.strokeStyle = '#ffe45c'; c.lineWidth = 5; c.setLineDash([12,7]); c.beginPath(); c.moveTo(p.from.x,p.from.y); c.lineTo(p.to.x,p.to.y); c.stroke(); c.setLineDash([]); }
+  drawPreview(c) {
+    const p = this.preview || (this.selected?.destination && { from: this.selected, to: this.selected.destination });
+    if (!p) return;
+    c.strokeStyle = '#fff7a8'; c.lineWidth = 8; c.setLineDash([14,8]);
+    c.beginPath(); c.moveTo(p.from.x,p.from.y); c.lineTo(p.to.x,p.to.y); c.stroke();
+    c.strokeStyle = '#e0a900'; c.lineWidth = 3; c.stroke(); c.setLineDash([]);
+    const angle = Math.atan2(p.to.y - p.from.y, p.to.x - p.from.x);
+    c.fillStyle = '#fff7a8'; c.beginPath(); c.moveTo(p.to.x, p.to.y); c.lineTo(p.to.x - 18*Math.cos(angle-.45), p.to.y - 18*Math.sin(angle-.45)); c.lineTo(p.to.x - 18*Math.cos(angle+.45), p.to.y - 18*Math.sin(angle+.45)); c.closePath(); c.fill();
+  }
+
+  drawTapMarker(c) {
+    if (!this.tapMarker) return;
+    const pulse = 1 + Math.sin(this.time * 18) * 0.2;
+    c.strokeStyle = '#fff06a'; c.lineWidth = 3;
+    c.beginPath(); c.arc(this.tapMarker.x, this.tapMarker.y, 14 * pulse, 0, Math.PI * 2); c.stroke();
+    c.beginPath(); c.moveTo(this.tapMarker.x - 18, this.tapMarker.y); c.lineTo(this.tapMarker.x + 18, this.tapMarker.y); c.moveTo(this.tapMarker.x, this.tapMarker.y - 18); c.lineTo(this.tapMarker.x, this.tapMarker.y + 18); c.stroke();
+  }
 
   drawPlayer(c,p) {
     const primary = p.role === 'goalkeeper' ? p.kit.keeper : p.kit.primary;
@@ -311,8 +353,13 @@ export class Game {
   }
 
   drawBall(c) {
+    if (this.ball.state === 'shot' && this.ball.target) {
+      c.strokeStyle = '#ffffff88'; c.lineWidth = 4; c.beginPath(); c.moveTo(this.ball.x, this.ball.y); c.lineTo(this.ball.x + (this.ball.x - this.ball.target.x) * 0.08, this.ball.y + (this.ball.y - this.ball.target.y) * 0.08); c.stroke();
+    }
     c.fillStyle = '#0008'; c.beginPath(); c.ellipse(this.ball.x+3,this.ball.y+5,8,4,0,0,Math.PI*2); c.fill();
-    c.fillStyle = '#ffffff'; c.beginPath(); c.arc(this.ball.x,this.ball.y,8,0,Math.PI*2); c.fill(); c.strokeStyle='#111'; c.lineWidth = 2; c.stroke();
+    c.fillStyle = '#ffffff'; c.beginPath(); c.arc(this.ball.x,this.ball.y,8,0,Math.PI*2); c.fill();
+    c.strokeStyle='#111'; c.lineWidth = 2; c.stroke();
+    c.strokeStyle = '#222'; c.lineWidth = 1; c.beginPath(); c.moveTo(this.ball.x-5,this.ball.y); c.lineTo(this.ball.x+5,this.ball.y); c.moveTo(this.ball.x,this.ball.y-5); c.lineTo(this.ball.x,this.ball.y+5); c.stroke();
   }
 
   drawOverlay(c) {

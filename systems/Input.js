@@ -18,7 +18,12 @@ export class Input {
     }
     if (!this.game.selected || this.game.selected.isStunned(this.game.nowMs)) return;
     if (this.game.selected.hasBall && this.game.isInOpponentGoalArea(p)) this.game.shoot();
-    else if (this.game.selected.hasBall) this.game.passTo(p);
-    else this.game.commandMove(p);
+    else if (this.game.selected.hasBall) {
+      const carrier = this.game.selected;
+      const distance = Math.hypot(p.x - carrier.x, p.y - carrier.y);
+      const forward = carrier.team.side === 'bottom' ? p.y < carrier.y : p.y > carrier.y;
+      if (distance < 125 || !forward) this.game.commandMove(p);
+      else this.game.passTo(p);
+    } else this.game.commandMove(p);
   }
 }

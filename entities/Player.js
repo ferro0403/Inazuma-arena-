@@ -13,6 +13,7 @@ export class Player {
     this.tp = 50;
     this.duelCooldownUntil = 0;
     this.stunnedUntil = 0;
+    this.aiNextDecisionAt = 0;
   }
 
   isStunned(now = performance.now()) { return now < this.stunnedUntil; }

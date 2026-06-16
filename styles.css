@@ -101,9 +101,22 @@ body {
   font-size: clamp(11px, 2.8vw, 14px);
 }
 #selected-name { color: var(--gold); }
-#debug-readout {
+#debug-toggle {
   position: absolute;
   top: 4px;
+  left: 4px;
+  z-index: 2;
+  padding: 4px 6px;
+  border: 1px solid #d7ecff;
+  border-radius: 5px;
+  color: #dfffe4;
+  background: #07111dcc;
+  font-size: 10px;
+  box-shadow: none;
+}
+#debug-readout {
+  position: absolute;
+  top: 30px;
   left: 4px;
   padding: 4px 6px;
   color: #dfffe4;
@@ -119,6 +132,7 @@ body {
   border-color: #ffb3bd !important;
   white-space: normal;
 }
+#debug-readout.collapsed { display: none; }
 #minimap { width: 92px; height: 54px; }
 #modal {
   position: fixed;

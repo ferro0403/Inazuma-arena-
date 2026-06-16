@@ -3,6 +3,10 @@ export class HUD {
     this.game = game;
     this.ctx = document.getElementById('minimap').getContext('2d');
     this.debug = document.getElementById('debug-readout');
+    document.getElementById('debug-toggle')?.addEventListener('click', event => {
+      event.preventDefault();
+      this.debug.classList.toggle('collapsed');
+    });
   }
   update() {
     const g = this.game, m = Math.floor(g.time / 60), s = Math.floor(g.time % 60);
@@ -12,10 +16,11 @@ export class HUD {
     const closest = g.ball.carrier ? 'n/a' : [...g.players]
       .filter(p => !p.isStunned(g.nowMs))
       .sort((a, b) => Math.hypot(a.x - g.ball.x, a.y - g.ball.y) - Math.hypot(b.x - g.ball.x, b.y - g.ball.y))[0]?.name || 'None';
-    this.debug.innerHTML = `players: ${g.players.length}<br>ball state: ${g.ball.state}<br>possessor: ${g.ball.carrier ? g.ball.carrier.name : 'None'}<br>ball: ${Math.round(g.ball.x)},${Math.round(g.ball.y)}<br>target: ${g.ball.target ? `${Math.round(g.ball.target.x)},${Math.round(g.ball.target.y)}` : 'None'}<br>paused: ${g.paused}<br>event: ${g.ui?.activeState || 'none'}<br>closest: ${closest}`;
+    this.debug.innerHTML = `state: ${g.ball.state}<br>possessor: ${g.ball.carrier ? g.ball.carrier.name : 'None'}<br>ball: ${Math.round(g.ball.x)},${Math.round(g.ball.y)}<br>target: ${g.ball.target ? `${Math.round(g.ball.target.x)},${Math.round(g.ball.target.y)}` : 'None'}<br>camera: ${Math.round(g.camera.x)},${Math.round(g.camera.y)}<br>selected: ${g.selected ? g.selected.name : 'None'}<br>event: ${g.ui?.activeState || 'none'}<br>AI: ${g.aiDecision || 'idle'}<br>closest: ${closest}`;
     const c = this.ctx, w = c.canvas.width, h = c.canvas.height;
     c.clearRect(0,0,w,h); c.fillStyle = '#205b31'; c.fillRect(0,0,w,h); c.strokeStyle = '#fff'; c.strokeRect(3,3,w-6,h-6);
-    for (const p of g.players) { c.fillStyle = p.role === 'goalkeeper' ? p.kit.keeper : p.kit.primary; c.beginPath(); c.arc(p.x/g.field.width*w, p.y/g.field.height*h, 3, 0, Math.PI*2); c.fill(); }
+    c.strokeStyle = '#ffffff88'; c.beginPath(); c.moveTo(0,h/2); c.lineTo(w,h/2); c.stroke();
+    for (const p of g.players) { c.fillStyle = p.role === 'goalkeeper' ? p.kit.keeper : p.kit.primary; c.beginPath(); c.arc(p.x/g.field.width*w, p.y/g.field.height*h, p.hasBall ? 4 : 3, 0, Math.PI*2); c.fill(); }
     c.fillStyle = '#fff'; c.beginPath(); c.arc(g.ball.x/g.field.width*w, g.ball.y/g.field.height*h, 2.5, 0, Math.PI*2); c.fill();
   }
 }
