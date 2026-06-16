@@ -13,20 +13,24 @@ export class Game {
   constructor() {
     this.canvas = document.getElementById('game');
     this.ctx = this.canvas.getContext('2d');
-    this.field = { width: 960, height: 540 };
+    this.field = { width: 900, height: 1500 };
     this.time = 0;
     this.paused = false;
     this.teams = [
-      new Team('Raimon', 'left', { primary: '#ffd944', secondary: '#1d5fd0', keeper: '#39d98a' }),
-      new Team('Alius', 'right', { primary: '#ee3434', secondary: '#171717', keeper: '#9f7cff' })
+      new Team('Raimon', 'bottom', { primary: '#ffd944', secondary: '#1d5fd0', keeper: '#39d98a' }),
+      new Team('Alius', 'top', { primary: '#ee3434', secondary: '#171717', keeper: '#9f7cff' })
     ];
     this.players = this.teams.flatMap(t => t.players);
     this.humanTeam = this.teams[0];
-    this.ball = new Ball(480, 270);
-    this.ball.attach(this.teams[0].players[3]);
+    this.ball = new Ball(this.field.width / 2, this.field.height / 2);
+    const kickoffPlayer = this.teams[0].players[3];
+    kickoffPlayer.x = this.field.width / 2;
+    kickoffPlayer.y = this.field.height / 2 + 38;
+    kickoffPlayer.homeX = kickoffPlayer.x;
+    kickoffPlayer.homeY = kickoffPlayer.y;
+    this.ball.attach(kickoffPlayer);
     this.camera = new Camera(this.canvas, this.field);
-    this.camera.x = 0;
-    this.camera.y = 0;
+    this.camera.centerOn({ x: this.field.width / 2, y: this.field.height / 2 });
     this.ui = new EventUI();
     this.gkSystem = new GoalkeeperSystem(this.ui);
     this.shotSystem = new ShotSystem(this.ui, this.gkSystem);
@@ -44,6 +48,9 @@ export class Game {
     this.canvas.width = Math.max(320, Math.round(rect.width * dpr));
     this.canvas.height = Math.max(240, Math.round(rect.height * dpr));
     this.ctx.imageSmoothingEnabled = false;
+    const viewWidth = Math.min(620, Math.max(420, this.field.width * 0.62));
+    const viewHeight = viewWidth * (this.canvas.height / this.canvas.width);
+    this.camera.setViewport(viewWidth, Math.min(this.field.height, Math.max(560, viewHeight)));
   }
 
   start() {
@@ -54,6 +61,8 @@ export class Game {
       throw new Error('Kickoff ball was not initialized away from 0,0');
     }
     this.select(this.ball.carrier || this.players[0]);
+    this.camera.centerOn(this.ball.carrier || this.ball);
+    this.validateWorldState('start');
     this.last = performance.now();
     requestAnimationFrame(t => this.loop(t));
   }
@@ -69,16 +78,39 @@ export class Game {
     this.players.forEach(p => { p.x = p.homeX; p.y = p.homeY; p.destination = null; p.hasBall = false; });
     const carrier = goal ? this.teams[1].players[3] : this.teams[1].players[0]; this.ball.attach(carrier); this.select(this.teams[0].players[3]);
   }
-  isInOpponentGoalArea(p) { return p.x > this.field.width - 120 && p.y > 190 && p.y < 350; }
+  isInOpponentGoalArea(p) { return p.y < 150 && p.x > 280 && p.x < 620; }
   screenToWorld(sx, sy) {
     const view = this.view || { scale: 1, offsetX: 0, offsetY: 0 };
     return this.clamp({ x: (sx - view.offsetX) / view.scale + this.camera.x, y: (sy - view.offsetY) / view.scale + this.camera.y });
   }
-  clamp(p) { return { x: Math.max(18, Math.min(this.field.width - 18, p.x)), y: Math.max(18, Math.min(this.field.height - 18, p.y)) }; }
+  clamp(p) {
+    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+      console.warn('Clamp received invalid point', p);
+      return { x: this.field.width / 2, y: this.field.height / 2 };
+    }
+    return { x: Math.max(18, Math.min(this.field.width - 18, p.x)), y: Math.max(18, Math.min(this.field.height - 18, p.y)) };
+  }
+  validateWorldState(source = 'world') {
+    for (const player of this.players) {
+      player.validatePosition({ x: player.homeX, y: player.homeY });
+      const clamped = this.clamp(player);
+      if (clamped.x !== player.x || clamped.y !== player.y) {
+        console.warn('Clamped player inside field', { source, player: player.name, x: player.x, y: player.y });
+        player.x = clamped.x;
+        player.y = clamped.y;
+      }
+      if (player.destination) player.setDestination(this.clamp(player.destination));
+    }
+    this.ball.validatePosition({ x: this.field.width / 2, y: this.field.height / 2 });
+    const ballPoint = this.clamp(this.ball);
+    this.ball.x = ballPoint.x;
+    this.ball.y = ballPoint.y;
+    this.camera.clamp();
+  }
   loop(now) { const dt = Math.min(0.04, (now - this.last) / 1000); this.last = now; if (!this.paused) this.update(dt); this.draw(); requestAnimationFrame(t => this.loop(t)); }
   update(dt) {
-    this.time += dt; this.ai.update(this, dt); this.players.forEach(p => p.update(dt)); this.ball.update(dt); this.resolveLooseBall(); this.checkDuel();
-    this.camera.follow(this.ball.carrier || this.ball, dt); this.hud.update();
+    this.time += dt; this.ai.update(this, dt); this.players.forEach(p => p.update(dt)); this.ball.update(dt); this.validateWorldState('update'); this.resolveLooseBall(); this.checkDuel();
+    this.camera.follow(this.ball.carrier || this.ball || this.selected, dt); this.hud.update();
   }
   resolveLooseBall() {
     if (this.ball.carrier || this.ball.target) return;
@@ -95,9 +127,9 @@ export class Game {
     const c = this.ctx, cam = this.camera;
     c.clearRect(0,0,this.canvas.width,this.canvas.height);
     c.save();
-    const scale = Math.min(this.canvas.width / this.field.width, this.canvas.height / this.field.height);
-    const offsetX = (this.canvas.width - this.field.width * scale) / 2;
-    const offsetY = (this.canvas.height - this.field.height * scale) / 2;
+    const scale = this.canvas.width / this.camera.viewportWidth;
+    const offsetX = 0;
+    const offsetY = 0;
     this.view = { scale, offsetX, offsetY };
     c.translate(offsetX, offsetY);
     c.scale(scale, scale);
@@ -107,16 +139,16 @@ export class Game {
   }
   drawField(c) {
     c.fillStyle = '#2f8b45'; c.fillRect(0,0,this.field.width,this.field.height);
-    for (let x=0; x<this.field.width; x+=64) { c.fillStyle = x%128===0?'#32934a':'#2b803f'; c.fillRect(x,0,64,this.field.height); }
-    c.strokeStyle = '#eaf6d6'; c.lineWidth = 4;
-    c.strokeRect(28,28,this.field.width-56,this.field.height-56);
-    c.beginPath(); c.moveTo(this.field.width/2,28); c.lineTo(this.field.width/2,this.field.height-28); c.stroke();
-    c.beginPath(); c.arc(this.field.width/2,this.field.height/2,58,0,Math.PI*2); c.stroke();
-    c.beginPath(); c.arc(this.field.width/2,this.field.height/2,4,0,Math.PI*2); c.fillStyle = '#eaf6d6'; c.fill();
-    c.strokeRect(28,170,115,200); c.strokeRect(28,220,55,100);
-    c.strokeRect(this.field.width-143,170,115,200); c.strokeRect(this.field.width-83,220,55,100);
-    c.fillStyle = '#f5f5f5'; c.fillRect(0,215,28,110); c.fillRect(this.field.width-28,215,28,110);
-    c.fillStyle = '#c9c9c9'; c.fillRect(2,225,10,90); c.fillRect(this.field.width-12,225,10,90);
+    for (let y=0; y<this.field.height; y+=90) { c.fillStyle = y%180===0?'#32934a':'#2b803f'; c.fillRect(0,y,this.field.width,90); }
+    c.strokeStyle = '#eaf6d6'; c.lineWidth = 5;
+    c.strokeRect(42,42,this.field.width-84,this.field.height-84);
+    c.beginPath(); c.moveTo(42,this.field.height/2); c.lineTo(this.field.width-42,this.field.height/2); c.stroke();
+    c.beginPath(); c.arc(this.field.width/2,this.field.height/2,82,0,Math.PI*2); c.stroke();
+    c.beginPath(); c.arc(this.field.width/2,this.field.height/2,5,0,Math.PI*2); c.fillStyle = '#eaf6d6'; c.fill();
+    c.strokeRect(250,42,400,170); c.strokeRect(335,42,230,82);
+    c.strokeRect(250,this.field.height-212,400,170); c.strokeRect(335,this.field.height-124,230,82);
+    c.fillStyle = '#f5f5f5'; c.fillRect(360,0,180,42); c.fillRect(360,this.field.height-42,180,42);
+    c.fillStyle = '#c9c9c9'; c.fillRect(375,4,150,12); c.fillRect(375,this.field.height-16,150,12);
   }
   drawPreview(c) { const p = this.preview || (this.selected?.destination && { from: this.selected, to: this.selected.destination }); if (!p) return; c.strokeStyle = '#ffe45c'; c.lineWidth = 5; c.setLineDash([12,7]); c.beginPath(); c.moveTo(p.from.x,p.from.y); c.lineTo(p.to.x,p.to.y); c.stroke(); c.setLineDash([]); }
   drawPlayer(c,p) {

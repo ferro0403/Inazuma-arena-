@@ -19,30 +19,34 @@ function drawFallbackScene(error) {
   canvas.width = Math.max(320, Math.round(rect.width * dpr));
   canvas.height = Math.max(240, Math.round(rect.height * dpr));
 
-  const field = { width: 960, height: 540 };
-  const scale = Math.min(canvas.width / field.width, canvas.height / field.height);
-  const offsetX = (canvas.width - field.width * scale) / 2;
-  const offsetY = (canvas.height - field.height * scale) / 2;
+  const field = { width: 900, height: 1500 };
+  const viewportWidth = 560;
+  const viewportHeight = viewportWidth * (canvas.height / canvas.width);
+  const camera = {
+    x: Math.max(0, Math.min(field.width - viewportWidth, field.width / 2 - viewportWidth / 2)),
+    y: Math.max(0, Math.min(field.height - viewportHeight, field.height / 2 - viewportHeight / 2))
+  };
+  const scale = canvas.width / viewportWidth;
   ctx.save();
-  ctx.translate(offsetX, offsetY);
   ctx.scale(scale, scale);
+  ctx.translate(-camera.x, -camera.y);
   ctx.fillStyle = '#2f8b45';
   ctx.fillRect(0, 0, field.width, field.height);
-  for (let x = 0; x < field.width; x += 64) {
-    ctx.fillStyle = x % 128 === 0 ? '#32934a' : '#2b803f';
-    ctx.fillRect(x, 0, 64, field.height);
+  for (let y = 0; y < field.height; y += 90) {
+    ctx.fillStyle = y % 180 === 0 ? '#32934a' : '#2b803f';
+    ctx.fillRect(0, y, field.width, 90);
   }
   ctx.strokeStyle = '#eaf6d6';
-  ctx.lineWidth = 4;
-  ctx.strokeRect(28, 28, field.width - 56, field.height - 56);
-  ctx.beginPath(); ctx.moveTo(field.width / 2, 28); ctx.lineTo(field.width / 2, field.height - 28); ctx.stroke();
-  ctx.beginPath(); ctx.arc(field.width / 2, field.height / 2, 58, 0, Math.PI * 2); ctx.stroke();
-  ctx.strokeRect(28, 170, 115, 200); ctx.strokeRect(field.width - 143, 170, 115, 200);
-  ctx.fillStyle = '#f5f5f5'; ctx.fillRect(0, 215, 28, 110); ctx.fillRect(field.width - 28, 215, 28, 110);
+  ctx.lineWidth = 5;
+  ctx.strokeRect(42, 42, field.width - 84, field.height - 84);
+  ctx.beginPath(); ctx.moveTo(42, field.height / 2); ctx.lineTo(field.width - 42, field.height / 2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(field.width / 2, field.height / 2, 82, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeRect(250, 42, 400, 170); ctx.strokeRect(250, field.height - 212, 400, 170);
+  ctx.fillStyle = '#f5f5f5'; ctx.fillRect(360, 0, 180, 42); ctx.fillRect(360, field.height - 42, 180, 42);
 
   const players = [
-    [62,270,'#39d98a'], [255,170,'#ffd944'], [255,370,'#ffd944'], [410,230,'#ffd944'], [410,315,'#ffd944'],
-    [898,270,'#9f7cff'], [705,170,'#ee3434'], [705,370,'#ee3434'], [550,230,'#ee3434'], [550,315,'#ee3434']
+    [450,1410,'#39d98a'], [280,1110,'#ffd944'], [620,1110,'#ffd944'], [450,788,'#ffd944'], [540,880,'#ffd944'],
+    [450,90,'#9f7cff'], [280,390,'#ee3434'], [620,390,'#ee3434'], [360,620,'#ee3434'], [540,620,'#ee3434']
   ];
   players.forEach(([x, y, color], index) => {
     ctx.fillStyle = color;
@@ -55,7 +59,7 @@ function drawFallbackScene(error) {
     ctx.fillText(`P${index + 1}`, x, y - 22);
   });
   ctx.fillStyle = '#fff';
-  ctx.beginPath(); ctx.arc(480, 270, 8, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(450, 788, 8, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 

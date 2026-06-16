@@ -7,12 +7,12 @@ export class Team {
     this.kit = kit;
     this.color = kit.primary;
     this.score = 0;
-    const left = side === 'left';
-    const goalX = left ? 62 : 898;
-    const names = left ? ['Endo', 'Kazemaru', 'Someoka', 'Gouenji', 'Kidou'] : ['Zell', 'Reize', 'Droll', 'Heat', 'Gocker'];
-    const spots = left
-      ? [[goalX, 270], [255, 170], [255, 370], [410, 230], [410, 315]]
-      : [[goalX, 270], [705, 170], [705, 370], [550, 230], [550, 315]];
+    const bottom = side === 'bottom';
+    const goalY = bottom ? 1410 : 90;
+    const names = bottom ? ['Endo', 'Kazemaru', 'Someoka', 'Gouenji', 'Kidou'] : ['Zell', 'Reize', 'Droll', 'Heat', 'Gocker'];
+    const spots = bottom
+      ? [[450, goalY], [280, 1110], [620, 1110], [360, 880], [540, 880]]
+      : [[450, goalY], [280, 390], [620, 390], [360, 620], [540, 620]];
     this.players = spots.map(([x, y], index) => new Player({
       id: `${side}-${index === 0 ? 'gk' : index}`,
       name: names[index],
