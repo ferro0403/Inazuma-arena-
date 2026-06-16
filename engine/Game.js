@@ -18,6 +18,10 @@ export class Game {
     this.paused = false;
     this.nowMs = performance.now();
     this.duelLockedUntil = 0;
+    this.overlay = null;
+    this.pendingShotOutcome = null;
+    this.goalResetAt = 0;
+    this.pendingDistributionAt = 0;
     this.teams = [
       new Team('Raimon', 'bottom', { primary: '#ffd944', secondary: '#1d5fd0', keeper: '#39d98a' }),
       new Team('Alius', 'top', { primary: '#ee3434', secondary: '#171717', keeper: '#9f7cff' })
@@ -57,12 +61,8 @@ export class Game {
   }
 
   start() {
-    if (!this.players || this.players.length !== 10) {
-      throw new Error(`Kickoff expected 10 players, received ${this.players?.length ?? 0}`);
-    }
-    if (!this.ball || this.ball.x === 0 || this.ball.y === 0) {
-      throw new Error('Kickoff ball was not initialized away from 0,0');
-    }
+    if (!this.players || this.players.length !== 10) throw new Error(`Kickoff expected 10 players, received ${this.players?.length ?? 0}`);
+    if (!this.ball || this.ball.x === 0 || this.ball.y === 0) throw new Error('Kickoff ball was not initialized away from 0,0');
     this.select(this.ball.carrier || this.players[0]);
     this.camera.centerOn(this.ball.carrier || this.ball);
     this.validateWorldState('start');
@@ -76,25 +76,47 @@ export class Game {
     this.selected = player;
     if (player) player.selected = true;
   }
+
   commandMove(p) {
     if (!this.selected || this.selected.isStunned(this.nowMs)) return;
     const point = this.clamp(p);
     this.selected.setDestination(point);
     this.preview = { from: this.selected, to: point };
   }
+
   passTo(target) {
     if (!this.selected || !this.selected.hasBall || this.selected.isStunned(this.nowMs)) return;
-    this.ball.kick(this.clamp(target), this.selected);
+    const point = this.clamp(target);
+    this.ball.passTo(point, this.selected);
+    if (target?.team === this.selected.team && !target.isStunned(this.nowMs)) target.setDestination(point);
   }
+
   shoot() {
     if (!this.selected || this.selected.isStunned(this.nowMs)) return;
-    const shooter = this.selected, keeper = this.teams[1].players[0]; this.paused = true;
-    this.shotSystem.start(shooter, keeper, goal => { if (goal) this.teams[0].score++; this.resetAfterShot(goal); this.paused = false; });
+    const shooter = this.selected, keeper = this.teams[1].players[0];
+    this.paused = true;
+    this.shotSystem.start(shooter, keeper, goal => {
+      this.paused = false;
+      this.startShotTravel(shooter, keeper, goal);
+    });
   }
+
+  startShotTravel(shooter, keeper, goal) {
+    this.pendingShotOutcome = { goal, keeper };
+    const target = goal ? { x: this.field.width / 2, y: 12 } : { x: keeper.x, y: keeper.y + 16 };
+    this.ball.shootTo(this.clamp(target), shooter);
+  }
+
   resetAfterShot(goal) {
     this.players.forEach(p => { p.x = p.homeX; p.y = p.homeY; p.destination = null; p.hasBall = false; p.stunnedUntil = 0; });
-    const carrier = goal ? this.teams[1].players[3] : this.teams[1].players[0]; this.ball.attach(carrier); this.select(this.teams[0].players[3]);
+    const carrier = goal ? this.teams[1].players[3] : this.teams[0].players[3];
+    carrier.x = this.field.width / 2;
+    carrier.y = goal ? this.field.height / 2 - 38 : this.field.height / 2 + 38;
+    this.ball.attach(carrier);
+    this.select(this.teams[0].players[3]);
+    this.camera.centerOn(carrier);
   }
+
   isInOpponentGoalArea(p) { return p.y < 150 && p.x > 280 && p.x < 620; }
   screenToWorld(sx, sy) {
     const view = this.view || { scale: 1, offsetX: 0, offsetY: 0 };
@@ -107,6 +129,7 @@ export class Game {
     }
     return { x: Math.max(18, Math.min(this.field.width - 18, p.x)), y: Math.max(18, Math.min(this.field.height - 18, p.y)) };
   }
+
   validateWorldState(source = 'world') {
     this.ball.validateState();
     for (const player of this.players) {
@@ -125,23 +148,89 @@ export class Game {
     this.ball.y = ballPoint.y;
     this.camera.clamp();
   }
-  loop(now) { const dt = Math.min(0.04, (now - this.last) / 1000); this.nowMs = now; this.last = now; if (!this.paused) this.update(dt); this.draw(); requestAnimationFrame(t => this.loop(t)); }
-  update(dt) {
-    this.time += dt; this.ai.update(this, dt); this.players.forEach(p => p.update(dt)); this.ball.update(dt); this.validateWorldState('update'); this.resolveLooseBall(); this.checkDuel();
-    this.camera.follow(this.ball.carrier || this.ball || this.selected, dt); this.hud.update();
+
+  loop(now) {
+    const dt = Math.min(0.04, (now - this.last) / 1000);
+    this.nowMs = now;
+    this.last = now;
+    this.updateTimers();
+    if (!this.paused) this.update(dt);
+    this.draw();
+    requestAnimationFrame(t => this.loop(t));
   }
+
+  update(dt) {
+    this.time += dt;
+    this.ai.update(this, dt);
+    this.players.forEach(p => p.update(dt));
+    this.ball.update(dt);
+    this.validateWorldState('update');
+    this.resolveShotTravel();
+    this.resolveLooseBall();
+    this.checkDuel();
+    this.camera.follow(this.ball.carrier || this.ball || this.selected, dt);
+    this.hud.update();
+  }
+
+  updateTimers() {
+    if (this.overlay?.until && this.nowMs >= this.overlay.until) this.overlay = null;
+    if (this.pendingDistributionAt && this.nowMs >= this.pendingDistributionAt) {
+      this.pendingDistributionAt = 0;
+      this.distributeFromGoalkeeper();
+    }
+    if (this.goalResetAt && this.nowMs >= this.goalResetAt) {
+      this.goalResetAt = 0;
+      this.paused = false;
+      this.resetAfterShot(true);
+    }
+  }
+
+  resolveShotTravel() {
+    if (this.ball.state !== 'shot' || this.ball.target || !this.pendingShotOutcome) return;
+    const { goal, keeper } = this.pendingShotOutcome;
+    this.pendingShotOutcome = null;
+    if (goal) {
+      this.ball.markGoal();
+      this.teams[0].score++;
+      this.overlay = { text: 'GOAL!', until: this.nowMs + 1000 };
+      this.goalResetAt = this.nowMs + 1000;
+      this.paused = true;
+      return;
+    }
+    this.ball.markSaved();
+    this.overlay = { text: 'SAVE!', until: this.nowMs + 700 };
+    this.ball.attach(keeper);
+    this.pendingDistributionAt = this.nowMs + 700;
+  }
+
+  distributeFromGoalkeeper() {
+    const keeper = this.ball.carrier;
+    if (!keeper || keeper.role !== 'goalkeeper') return;
+    const teammates = keeper.team.players
+      .filter(p => p !== keeper && !p.isStunned(this.nowMs) && p.y > 210)
+      .sort((a, b) => Math.hypot(a.x - keeper.x, a.y - keeper.y) - Math.hypot(b.x - keeper.x, b.y - keeper.y));
+    const target = teammates[0] || { x: this.field.width / 2, y: this.field.height / 2 };
+    this.ball.passTo(this.clamp(target), keeper);
+    if (target.setDestination) target.setDestination(this.clamp({ x: target.x, y: target.y + 40 }));
+  }
+
   resolveLooseBall() {
-    if (this.ball.carrier) return;
+    if (this.ball.carrier || this.ball.state === 'shot' || this.ball.state === 'goal' || this.ball.state === 'saved') return;
     const p = this.players.find(pl => !pl.isStunned(this.nowMs) && !(pl === this.ball.lastKicker && this.nowMs < this.ball.pickupBlockedUntil) && Math.hypot(pl.x - this.ball.x, pl.y - this.ball.y) < pl.radius + 14);
     if (p) { this.players.forEach(x => x.hasBall = false); this.ball.attach(p); if (p.team === this.humanTeam) this.select(p); }
   }
+
   checkDuel() {
     const carrier = this.ball.carrier;
     if (!carrier || carrier.role === 'goalkeeper' || carrier.isStunned(this.nowMs) || this.nowMs < this.duelLockedUntil || this.nowMs < carrier.duelCooldownUntil) return;
     const foe = this.players.find(p => p.team !== carrier.team && p.role === 'field' && !p.isStunned(this.nowMs) && this.nowMs >= p.duelCooldownUntil && Math.hypot(p.x - carrier.x, p.y - carrier.y) < p.radius + carrier.radius + 8);
-    if (!foe) return; this.paused = true; carrier.destination = null; foe.destination = null;
+    if (!foe) return;
+    this.paused = true;
+    carrier.destination = null;
+    foe.destination = null;
     this.duelSystem.start(carrier, foe, ({ winner, loser }) => this.resolveDuel(carrier, foe, winner, loser));
   }
+
   resolveDuel(attacker, defender, winner, loser) {
     const now = this.nowMs || performance.now();
     attacker.duelCooldownUntil = now + 1000;
@@ -180,7 +269,9 @@ export class Game {
     c.translate(-cam.x, -cam.y);
     this.drawField(c); this.drawPreview(c); this.players.forEach(p => this.drawPlayer(c,p)); this.drawBall(c);
     c.restore();
+    this.drawOverlay(c);
   }
+
   drawField(c) {
     c.fillStyle = '#2f8b45'; c.fillRect(0,0,this.field.width,this.field.height);
     for (let y=0; y<this.field.height; y+=90) { c.fillStyle = y%180===0?'#32934a':'#2b803f'; c.fillRect(0,y,this.field.width,90); }
@@ -192,25 +283,50 @@ export class Game {
     c.strokeRect(250,42,400,170); c.strokeRect(335,42,230,82);
     c.strokeRect(250,this.field.height-212,400,170); c.strokeRect(335,this.field.height-124,230,82);
     c.fillStyle = '#f5f5f5'; c.fillRect(360,0,180,42); c.fillRect(360,this.field.height-42,180,42);
-    c.fillStyle = '#c9c9c9'; c.fillRect(375,4,150,12); c.fillRect(375,this.field.height-16,150,12);
+    c.fillStyle = '#d8d8d8'; c.fillRect(372,4,156,12); c.fillRect(372,this.field.height-16,156,12);
+    c.strokeStyle = '#ffffff88'; c.lineWidth = 1;
+    for (let x=382; x<=518; x+=18) { c.beginPath(); c.moveTo(x,4); c.lineTo(x,16); c.moveTo(x,this.field.height-16); c.lineTo(x,this.field.height-4); c.stroke(); }
   }
+
   drawPreview(c) { const p = this.preview || (this.selected?.destination && { from: this.selected, to: this.selected.destination }); if (!p) return; c.strokeStyle = '#ffe45c'; c.lineWidth = 5; c.setLineDash([12,7]); c.beginPath(); c.moveTo(p.from.x,p.from.y); c.lineTo(p.to.x,p.to.y); c.stroke(); c.setLineDash([]); }
+
   drawPlayer(c,p) {
     const primary = p.role === 'goalkeeper' ? p.kit.keeper : p.kit.primary;
     const secondary = p.role === 'goalkeeper' ? '#ffffff' : p.kit.secondary;
     const stunned = p.isStunned(this.nowMs);
-    if (p.selected) { c.strokeStyle = '#fff56d'; c.lineWidth = 5; c.beginPath(); c.arc(p.x,p.y,p.radius+9,0,Math.PI*2); c.stroke(); }
-    if (stunned) { c.strokeStyle = '#7bdcff'; c.lineWidth = 4; c.beginPath(); c.arc(p.x,p.y-34,10,0,Math.PI*2); c.stroke(); }
-    c.fillStyle = '#111'; c.fillRect(p.x-9,p.y+9,18,8);
+    const runFrame = p.destination ? Math.floor(this.time * 10) % 2 : 0;
+    if (p.selected) { c.strokeStyle = '#fff56d'; c.lineWidth = 5; c.beginPath(); c.arc(p.x,p.y,p.radius+10,0,Math.PI*2); c.stroke(); }
+    if (stunned) { c.strokeStyle = '#7bdcff'; c.lineWidth = 4; c.beginPath(); c.arc(p.x,p.y-38,10,0,Math.PI*2); c.stroke(); }
     c.globalAlpha = stunned ? 0.55 : 1;
-    c.fillStyle = primary; c.fillRect(p.x-13,p.y-16,26,24);
-    c.fillStyle = secondary; c.fillRect(p.x-13,p.y-2,26,10);
-    c.fillStyle = '#f2c18d'; c.fillRect(p.x-8,p.y-27,16,13);
-    c.strokeStyle = '#101010'; c.lineWidth = 2; c.strokeRect(p.x-13,p.y-16,26,24); c.strokeRect(p.x-8,p.y-27,16,13);
-    c.fillStyle = '#ffffff'; c.font = 'bold 13px Trebuchet MS'; c.textAlign='center'; c.strokeStyle = '#102018'; c.lineWidth = 3; c.strokeText(p.name,p.x,p.y-33); c.fillText(p.name,p.x,p.y-33);
+    c.fillStyle = '#0b0b0b'; c.fillRect(p.x-15,p.y-29,30,42);
+    c.fillStyle = '#f2c18d'; c.fillRect(p.x-8,p.y-31,16,13);
+    c.fillStyle = primary; c.fillRect(p.x-13,p.y-17,26,20);
+    c.fillStyle = secondary; c.fillRect(p.x-13,p.y-1,26,8);
+    c.fillStyle = secondary; c.fillRect(p.x-12,p.y+6,10,10); c.fillRect(p.x+2,p.y+6,10,10);
+    c.fillStyle = '#ffffff'; c.fillRect(p.x-12,p.y+16+runFrame*2,8,9); c.fillRect(p.x+4,p.y+18-runFrame*2,8,9);
+    c.strokeStyle = '#101010'; c.lineWidth = 2; c.strokeRect(p.x-13,p.y-17,26,20); c.strokeRect(p.x-8,p.y-31,16,13);
     c.globalAlpha = 1;
-    if (p.hasBall) { c.strokeStyle='#ffffff'; c.lineWidth = 3; c.beginPath(); c.arc(p.x,p.y,p.radius+14,0,Math.PI*2); c.stroke(); }
+    c.fillStyle = '#ffffff'; c.font = 'bold 13px Trebuchet MS'; c.textAlign='center'; c.strokeStyle = '#102018'; c.lineWidth = 3; c.strokeText(p.name,p.x,p.y-37); c.fillText(p.name,p.x,p.y-37);
+    if (p.hasBall) { c.strokeStyle='#ffffff'; c.lineWidth = 3; c.beginPath(); c.arc(p.x,p.y,p.radius+15,0,Math.PI*2); c.stroke(); }
   }
-  drawBall(c) { c.fillStyle = '#ffffff'; c.beginPath(); c.arc(this.ball.x,this.ball.y,8,0,Math.PI*2); c.fill(); c.strokeStyle='#111'; c.lineWidth = 2; c.stroke(); }
-}
 
+  drawBall(c) {
+    c.fillStyle = '#0008'; c.beginPath(); c.ellipse(this.ball.x+3,this.ball.y+5,8,4,0,0,Math.PI*2); c.fill();
+    c.fillStyle = '#ffffff'; c.beginPath(); c.arc(this.ball.x,this.ball.y,8,0,Math.PI*2); c.fill(); c.strokeStyle='#111'; c.lineWidth = 2; c.stroke();
+  }
+
+  drawOverlay(c) {
+    if (!this.overlay) return;
+    c.save();
+    c.fillStyle = '#0009';
+    c.fillRect(this.canvas.width / 2 - 150, this.canvas.height * 0.18 - 38, 300, 76);
+    c.strokeStyle = '#fff06a';
+    c.lineWidth = 4;
+    c.strokeRect(this.canvas.width / 2 - 150, this.canvas.height * 0.18 - 38, 300, 76);
+    c.fillStyle = '#fff06a';
+    c.font = 'bold 44px Trebuchet MS';
+    c.textAlign = 'center';
+    c.fillText(this.overlay.text, this.canvas.width / 2, this.canvas.height * 0.18 + 16);
+    c.restore();
+  }
+}
