@@ -27,6 +27,8 @@ export class Game {
     this.tapMarker = null;
     this.pendingRestart = null;
     this.restartAt = 0;
+    this.matchState = 'play';
+    this.lastBoundary = 'none';
     this.teams = [
       new Team('Raimon', 'bottom', { primary: '#ffd944', secondary: '#1d5fd0', keeper: '#39d98a' }),
       new Team('Alius', 'top', { primary: '#ee3434', secondary: '#171717', keeper: '#9f7cff' })
@@ -51,6 +53,7 @@ export class Game {
     new Input(this);
     this.resizeCanvas();
     window.addEventListener('resize', () => this.resizeCanvas());
+    this.bindDebugRestartButtons();
   }
 
   resizeCanvas() {
@@ -63,6 +66,24 @@ export class Game {
     const viewHeight = viewWidth * (this.canvas.height / this.canvas.width);
     this.camera.setViewport(viewWidth, Math.min(this.field.height, Math.max(560, viewHeight)));
     this.view = { scale: this.canvas.width / this.camera.viewportWidth, offsetX: 0, offsetY: 0 };
+  }
+
+  bindDebugRestartButtons() {
+    document.getElementById('force-throw-left')?.addEventListener('click', () => this.forceBoundary('left'));
+    document.getElementById('force-throw-right')?.addEventListener('click', () => this.forceBoundary('right'));
+    document.getElementById('force-goal-kick')?.addEventListener('click', () => this.forceBoundary('goal_kick'));
+    document.getElementById('force-corner')?.addEventListener('click', () => this.forceBoundary('corner'));
+  }
+
+  forceBoundary(type) {
+    this.ball.setLoose();
+    this.ball.lastTouch = this.selected || this.players[3];
+    this.ball.lastTouchTeam = this.ball.lastTouch.team;
+    if (type === 'left') { this.ball.x = -8; this.ball.y = this.camera.y + this.camera.viewportHeight / 2; }
+    if (type === 'right') { this.ball.x = this.field.width + 8; this.ball.y = this.camera.y + this.camera.viewportHeight / 2; }
+    if (type === 'goal_kick') { this.ball.x = 120; this.ball.y = -8; this.ball.lastTouchTeam = this.teams.find(t => t.side === 'bottom'); }
+    if (type === 'corner') { this.ball.x = 120; this.ball.y = -8; this.ball.lastTouchTeam = this.teams.find(t => t.side === 'top'); }
+    this.handleOutOfBounds();
   }
 
   start() {
@@ -140,6 +161,7 @@ export class Game {
   }
 
   resetAfterShot(goal, scoringTeam = this.teams[0]) {
+    this.matchState = 'play';
     this.players.forEach(p => { p.x = p.homeX; p.y = p.homeY; p.destination = null; p.hasBall = false; p.stunnedUntil = 0; });
     const restartTeam = goal ? this.teams.find(t => t !== scoringTeam) : this.teams[0];
     const carrier = restartTeam.players[3];
@@ -235,19 +257,22 @@ export class Game {
   }
 
   handleOutOfBounds() {
-    if (this.paused || this.ball.carrier || this.ball.state === 'shot' || this.ball.state === 'goal' || this.ball.state === 'saved') return;
+    if (this.matchState === 'restart' || this.pendingRestart || this.ball.carrier || this.ball.state === 'goal') return;
     const crossedSide = this.ball.x < 0 || this.ball.x > this.field.width;
     const crossedTop = this.ball.y < 0;
     const crossedBottom = this.ball.y > this.field.height;
     if (!crossedSide && !crossedTop && !crossedBottom) return;
-    const lastTeam = this.ball.lastTouch?.team || this.ball.lastKicker?.team || this.humanTeam;
+    this.lastBoundary = crossedSide ? (this.ball.x < 0 ? 'left' : 'right') : (crossedTop ? 'top' : 'bottom');
+    const lastTeam = this.ball.lastTouchTeam || this.ball.lastTouch?.team || this.ball.lastKicker?.team || this.humanTeam;
     if (crossedSide) {
       const awardTeam = this.teams.find(t => t !== lastTeam);
       this.prepareRestart('throw_in', awardTeam, { x: this.ball.x < 0 ? 18 : this.field.width - 18, y: Math.max(80, Math.min(this.field.height - 80, this.ball.y)) });
       return;
     }
+    const insideGoalMouth = this.ball.x >= 360 && this.ball.x <= 540;
     const goalLineTeam = crossedTop ? this.teams.find(t => t.side === 'top') : this.teams.find(t => t.side === 'bottom');
     const attackingTeam = this.teams.find(t => t !== goalLineTeam);
+    if (insideGoalMouth) { this.triggerGoal(attackingTeam); return; }
     if (lastTeam === attackingTeam) {
       this.prepareRestart('goal_kick', goalLineTeam, { x: this.field.width / 2, y: crossedTop ? 95 : this.field.height - 95 });
     } else {
@@ -255,17 +280,29 @@ export class Game {
     }
   }
 
+  triggerGoal(scoringTeam) {
+    this.matchState = 'goal';
+    this.paused = true;
+    this.ball.markGoal();
+    scoringTeam.score++;
+    this.lastScoringTeam = scoringTeam;
+    this.overlay = { text: 'GOAL!', until: this.nowMs + 1000 };
+    this.goalResetAt = this.nowMs + 1000;
+  }
+
   prepareRestart(type, team, point) {
+    this.matchState = 'restart';
     this.paused = true;
     this.pendingRestart = { type, team, point: this.clamp(point) };
     this.ball.setLoose();
+    this.ball.vx = 0; this.ball.vy = 0; this.ball.speed = 0;
     this.ball.state = type;
     this.ball.x = this.pendingRestart.point.x;
     this.ball.y = this.pendingRestart.point.y;
     const taker = type === 'goal_kick' ? team.players[0] : (this.nearestPlayer(team.players.filter(p => !p.isStunned(this.nowMs)), this.ball) || team.players[0]);
     taker.x = this.ball.x; taker.y = this.ball.y; taker.destination = null;
     this.ball.lastTouch = taker;
-    this.overlay = { text: type === 'throw_in' ? 'THROW-IN' : type === 'goal_kick' ? 'GOAL KICK' : 'CORNER', until: this.nowMs + 650 };
+    this.overlay = { text: type === 'throw_in' ? 'THROW-IN' : type === 'goal_kick' ? 'GOAL KICK' : 'CORNER KICK', until: this.nowMs + 650 };
     this.restartAt = this.nowMs + 700;
   }
 
@@ -274,6 +311,7 @@ export class Game {
     const { type, team } = this.pendingRestart;
     const taker = this.ball.lastTouch || team.players[0];
     this.paused = false;
+    this.matchState = 'play';
     this.ball.attach(taker);
     if (type === 'goal_kick') { this.pendingDistributionAt = this.nowMs + 80; }
     else {
@@ -296,12 +334,7 @@ export class Game {
     if (!crossedGoal && !reachedKeeper) return;
     this.pendingShotOutcome = null;
     if (goal) {
-      this.ball.markGoal();
-      shooterTeam.score++;
-      this.lastScoringTeam = shooterTeam;
-      this.overlay = { text: 'GOAL!', until: this.nowMs + 1000 };
-      this.goalResetAt = this.nowMs + 1000;
-      this.paused = true;
+      this.triggerGoal(shooterTeam);
       return;
     }
     this.ball.markSaved();
