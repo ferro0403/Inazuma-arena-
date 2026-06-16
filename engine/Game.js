@@ -25,6 +25,8 @@ export class Game {
     this.aiDecision = 'idle';
     this.lastShotSource = 'none';
     this.tapMarker = null;
+    this.pendingRestart = null;
+    this.restartAt = 0;
     this.teams = [
       new Team('Raimon', 'bottom', { primary: '#ffd944', secondary: '#1d5fd0', keeper: '#39d98a' }),
       new Team('Alius', 'top', { primary: '#ee3434', secondary: '#171717', keeper: '#9f7cff' })
@@ -196,6 +198,7 @@ export class Game {
     this.ai.update(this, dt);
     this.players.forEach(p => p.update(dt));
     this.ball.update(dt);
+    this.handleOutOfBounds();
     this.validateWorldState('update');
     this.resolveShotTravel();
     this.resolveLooseBall();
@@ -220,11 +223,69 @@ export class Game {
       this.pendingDistributionAt = 0;
       this.distributeFromGoalkeeper();
     }
+    if (this.restartAt && this.nowMs >= this.restartAt) {
+      this.restartAt = 0;
+      this.executeRestart();
+    }
     if (this.goalResetAt && this.nowMs >= this.goalResetAt) {
       this.goalResetAt = 0;
       this.paused = false;
       this.resetAfterShot(true, this.lastScoringTeam || this.teams[0]);
     }
+  }
+
+  handleOutOfBounds() {
+    if (this.paused || this.ball.carrier || this.ball.state === 'shot' || this.ball.state === 'goal' || this.ball.state === 'saved') return;
+    const crossedSide = this.ball.x < 0 || this.ball.x > this.field.width;
+    const crossedTop = this.ball.y < 0;
+    const crossedBottom = this.ball.y > this.field.height;
+    if (!crossedSide && !crossedTop && !crossedBottom) return;
+    const lastTeam = this.ball.lastTouch?.team || this.ball.lastKicker?.team || this.humanTeam;
+    if (crossedSide) {
+      const awardTeam = this.teams.find(t => t !== lastTeam);
+      this.prepareRestart('throw_in', awardTeam, { x: this.ball.x < 0 ? 18 : this.field.width - 18, y: Math.max(80, Math.min(this.field.height - 80, this.ball.y)) });
+      return;
+    }
+    const goalLineTeam = crossedTop ? this.teams.find(t => t.side === 'top') : this.teams.find(t => t.side === 'bottom');
+    const attackingTeam = this.teams.find(t => t !== goalLineTeam);
+    if (lastTeam === attackingTeam) {
+      this.prepareRestart('goal_kick', goalLineTeam, { x: this.field.width / 2, y: crossedTop ? 95 : this.field.height - 95 });
+    } else {
+      this.prepareRestart('corner', attackingTeam, { x: this.ball.x < this.field.width / 2 ? 55 : this.field.width - 55, y: crossedTop ? 55 : this.field.height - 55 });
+    }
+  }
+
+  prepareRestart(type, team, point) {
+    this.paused = true;
+    this.pendingRestart = { type, team, point: this.clamp(point) };
+    this.ball.setLoose();
+    this.ball.state = type;
+    this.ball.x = this.pendingRestart.point.x;
+    this.ball.y = this.pendingRestart.point.y;
+    const taker = type === 'goal_kick' ? team.players[0] : (this.nearestPlayer(team.players.filter(p => !p.isStunned(this.nowMs)), this.ball) || team.players[0]);
+    taker.x = this.ball.x; taker.y = this.ball.y; taker.destination = null;
+    this.ball.lastTouch = taker;
+    this.overlay = { text: type === 'throw_in' ? 'THROW-IN' : type === 'goal_kick' ? 'GOAL KICK' : 'CORNER', until: this.nowMs + 650 };
+    this.restartAt = this.nowMs + 700;
+  }
+
+  executeRestart() {
+    if (!this.pendingRestart) return;
+    const { type, team } = this.pendingRestart;
+    const taker = this.ball.lastTouch || team.players[0];
+    this.paused = false;
+    this.ball.attach(taker);
+    if (type === 'goal_kick') { this.pendingDistributionAt = this.nowMs + 80; }
+    else {
+      const mate = team.players.find(p => p !== taker && p.role !== 'goalkeeper' && !p.isStunned(this.nowMs));
+      const target = mate || { x: this.field.width / 2, y: this.field.height / 2 };
+      this.ball.passTo(this.clamp(target), taker, mate ? 'teammate' : 'space');
+    }
+    this.pendingRestart = null;
+  }
+
+  nearestPlayer(players, target) {
+    return [...players].sort((a,b) => Math.hypot(a.x-target.x,a.y-target.y) - Math.hypot(b.x-target.x,b.y-target.y))[0];
   }
 
   resolveShotTravel() {

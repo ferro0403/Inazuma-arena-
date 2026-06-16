@@ -7,11 +7,12 @@ export class Ball {
     this.carrier = null; this.target = null; this.state = 'loose';
     this.lastKicker = null; this.pickupBlockedUntil = 0; this.arrived = false;
     this.lastPassType = 'none';
+    this.lastTouch = null;
   }
   attach(player) {
     if (!player || !Number.isFinite(player.x) || !Number.isFinite(player.y) || player.isStunned?.(performance.now())) { console.warn('Cannot attach ball', player); this.setLoose(); return; }
     if (this.carrier) this.carrier.hasBall = false;
-    this.carrier = player; player.hasBall = true; this.target = null; this.vx = 0; this.vy = 0; this.speed = 0;
+    this.carrier = player; player.hasBall = true; this.lastTouch = player; this.target = null; this.vx = 0; this.vy = 0; this.speed = 0;
     this.lastKicker = null; this.pickupBlockedUntil = 0; this.arrived = false; this.state = 'possessed'; this.x = player.x; this.y = player.y;
   }
   passTo(target, fromPlayer, passType = 'space') { this.travelTo(target, fromPlayer, 'pass', this.passSpeed, passType); }
@@ -23,7 +24,7 @@ export class Ball {
     if (!Number.isFinite(d) || d <= 0.0001) { this.setLoose(); return; }
     if (fromPlayer) fromPlayer.hasBall = false; if (this.carrier) this.carrier.hasBall = false;
     this.carrier = null; this.target = point; this.vx = dx / d * launchSpeed; this.vy = dy / d * launchSpeed; this.speed = launchSpeed;
-    this.lastKicker = fromPlayer || null; this.pickupBlockedUntil = performance.now() + 250; this.arrived = false; this.state = state; this.lastPassType = passType;
+    this.lastKicker = fromPlayer || null; this.lastTouch = fromPlayer || this.lastTouch; this.pickupBlockedUntil = performance.now() + 250; this.arrived = false; this.state = state; this.lastPassType = passType;
   }
   setLoose() { if (this.carrier) this.carrier.hasBall = false; this.carrier = null; this.target = null; this.state = 'loose'; this.lastKicker = null; this.pickupBlockedUntil = 0; this.arrived = false; }
   markGoal() { if (this.carrier) this.carrier.hasBall = false; this.carrier = null; this.target = null; this.vx = 0; this.vy = 0; this.speed = 0; this.state = 'goal'; this.arrived = true; }
@@ -32,7 +33,7 @@ export class Ball {
   validateState() {
     if (this.state === 'possessed' && this.carrier && !this.carrier.isStunned?.(performance.now())) return;
     if ((this.state === 'pass' || this.state === 'shot') && (Math.hypot(this.vx, this.vy) > 1 || this.arrived)) return;
-    if ((this.state === 'loose' || this.state === 'goal' || this.state === 'saved') && !this.carrier) return;
+    if ((this.state === 'loose' || this.state === 'goal' || this.state === 'saved' || this.state === 'throw_in' || this.state === 'goal_kick' || this.state === 'corner' || this.state === 'kickoff') && !this.carrier) return;
     if (this.state === 'possessed' && this.carrier?.isStunned?.(performance.now())) { this.setLoose(); return; }
     console.warn('Reset invalid ball state', { state:this.state, carrier:this.carrier }); this.state = this.carrier ? 'possessed' : 'loose';
   }
