@@ -112,6 +112,13 @@ body {
   line-height: 1.25;
   text-shadow: 1px 1px #000;
 }
+.debug-error {
+  max-width: min(86vw, 520px);
+  color: #fff !important;
+  background: #b00020ee !important;
+  border-color: #ffb3bd !important;
+  white-space: normal;
+}
 #minimap { width: 92px; height: 54px; }
 #modal {
   position: fixed;

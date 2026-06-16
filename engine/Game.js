@@ -9,7 +9,7 @@ import { GoalkeeperSystem } from '../systems/GoalkeeperSystem.js';
 import { HUD } from '../ui/HUD.js';
 import { EventUI } from '../ui/EventUI.js';
 
-class Game {
+export class Game {
   constructor() {
     this.canvas = document.getElementById('game');
     this.ctx = this.canvas.getContext('2d');
@@ -36,9 +36,6 @@ class Game {
     new Input(this);
     this.resizeCanvas();
     window.addEventListener('resize', () => this.resizeCanvas());
-    this.select(this.ball.carrier);
-    this.last = performance.now();
-    requestAnimationFrame(t => this.loop(t));
   }
 
   resizeCanvas() {
@@ -49,7 +46,19 @@ class Game {
     this.ctx.imageSmoothingEnabled = false;
   }
 
-  select(player) { this.players.forEach(p => p.selected = false); this.selected = player; player.selected = true; }
+  start() {
+    if (!this.players || this.players.length !== 10) {
+      throw new Error(`Kickoff expected 10 players, received ${this.players?.length ?? 0}`);
+    }
+    if (!this.ball || this.ball.x === 0 || this.ball.y === 0) {
+      throw new Error('Kickoff ball was not initialized away from 0,0');
+    }
+    this.select(this.ball.carrier || this.players[0]);
+    this.last = performance.now();
+    requestAnimationFrame(t => this.loop(t));
+  }
+
+  select(player) { this.players.forEach(p => p.selected = false); this.selected = player; if (player) player.selected = true; }
   commandMove(p) { this.selected?.setDestination(this.clamp(p)); this.preview = { from: this.selected, to: p }; }
   passTo(target) { this.ball.kick(target, this.selected); }
   shoot() {
@@ -125,4 +134,3 @@ class Game {
   drawBall(c) { c.fillStyle = '#ffffff'; c.beginPath(); c.arc(this.ball.x,this.ball.y,8,0,Math.PI*2); c.fill(); c.strokeStyle='#111'; c.lineWidth = 2; c.stroke(); }
 }
 
-new Game();
