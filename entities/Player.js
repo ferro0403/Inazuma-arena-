@@ -14,6 +14,7 @@ export class Player {
     this.duelCooldownUntil = 0;
     this.stunnedUntil = 0;
     this.aiNextDecisionAt = 0;
+    this.idleSince = 0;
   }
 
   isStunned(now = performance.now()) { return now < this.stunnedUntil; }
@@ -30,6 +31,7 @@ export class Player {
       return;
     }
     this.destination = { x: next.x, y: next.y };
+    this.idleSince = 0;
   }
 
   validatePosition(fallback = { x: this.homeX, y: this.homeY }) {
@@ -53,7 +55,7 @@ export class Player {
     const dy = this.destination.y - this.y;
     const distance = Math.hypot(dx, dy);
     if (!Number.isFinite(distance) || distance <= 0.0001) { this.destination = null; return; }
-    if (distance < 3) { this.destination = null; return; }
+    if (distance < 3) { this.destination = null; this.idleSince = performance.now(); return; }
     const step = Math.min(distance, this.speed * dt);
     this.x += (dx / distance) * step;
     this.y += (dy / distance) * step;

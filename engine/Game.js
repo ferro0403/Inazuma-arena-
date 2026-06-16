@@ -23,6 +23,7 @@ export class Game {
     this.goalResetAt = 0;
     this.pendingDistributionAt = 0;
     this.aiDecision = 'idle';
+    this.lastShotSource = 'none';
     this.tapMarker = null;
     this.teams = [
       new Team('Raimon', 'bottom', { primary: '#ffd944', secondary: '#1d5fd0', keeper: '#39d98a' }),
@@ -81,6 +82,7 @@ export class Game {
 
   commandMove(p) {
     if (!this.selected || this.selected.isStunned(this.nowMs)) return;
+    this.selected.idleSince = 0;
     const point = this.clamp(p);
     this.selected.setDestination(point);
     this.tapMarker = { x: point.x, y: point.y, until: this.nowMs + 500 };
@@ -95,7 +97,8 @@ export class Game {
   passFrom(player, target) {
     if (!player || !player.hasBall || player.isStunned(this.nowMs)) return;
     const point = this.clamp(target);
-    this.ball.passTo(point, player);
+    const type = target?.team === player.team ? 'teammate' : 'space';
+    this.ball.passTo(point, player, type);
     this.tapMarker = { x: point.x, y: point.y, until: this.nowMs + 450 };
     if (target?.team === player.team && !target.isStunned(this.nowMs)) {
       const lead = target.team.side === 'top' ? 35 : -35;
@@ -107,6 +110,7 @@ export class Game {
     if (!this.selected || this.selected.isStunned(this.nowMs)) return;
     const shooter = this.selected, keeper = this.teams[1].players[0];
     this.paused = true;
+    this.lastShotSource = 'user';
     this.shotSystem.start(shooter, keeper, goal => {
       this.paused = false;
       this.startShotTravel(shooter, keeper, goal);
@@ -114,10 +118,14 @@ export class Game {
   }
 
   startAIShot(shooter) {
+    if (!shooter || !shooter.hasBall || this.paused) return;
     const keeper = this.humanTeam.players[0];
-    const shotPower = shooter.stats.shoot + Math.random() * 45;
-    const savePower = keeper.stats.save + Math.random() * 45;
-    this.startShotTravel(shooter, keeper, shotPower > savePower);
+    this.lastShotSource = 'ai';
+    this.paused = true;
+    this.shotSystem.start(shooter, keeper, goal => {
+      this.paused = false;
+      this.startShotTravel(shooter, keeper, goal);
+    });
   }
 
   startShotTravel(shooter, keeper, goal) {
@@ -184,6 +192,7 @@ export class Game {
 
   update(dt) {
     this.time += dt;
+    this.updateCarrierIdle();
     this.ai.update(this, dt);
     this.players.forEach(p => p.update(dt));
     this.ball.update(dt);
@@ -193,6 +202,15 @@ export class Game {
     this.checkDuel();
     this.camera.follow(this.ball.carrier || this.ball || this.selected, dt);
     this.hud.update();
+  }
+
+  updateCarrierIdle() {
+    const carrier = this.ball.carrier;
+    if (!carrier || carrier.destination || carrier.isStunned(this.nowMs) || this.paused) return;
+    if (!carrier.idleSince) carrier.idleSince = this.nowMs;
+    if (carrier.team === this.humanTeam && this.nowMs - carrier.idleSince < 500) return;
+    const dir = carrier.team.side === 'bottom' ? -1 : 1;
+    carrier.setDestination(this.clamp({ x: carrier.x + (this.field.width / 2 - carrier.x) * 0.18, y: carrier.y + dir * 120 }));
   }
 
   updateTimers() {
@@ -210,8 +228,11 @@ export class Game {
   }
 
   resolveShotTravel() {
-    if (this.ball.state !== 'shot' || this.ball.target || !this.pendingShotOutcome) return;
+    if (this.ball.state !== 'shot' || !this.pendingShotOutcome) return;
     const { goal, keeper, shooterTeam } = this.pendingShotOutcome;
+    const crossedGoal = goal && (shooterTeam.side === 'bottom' ? this.ball.y <= 18 : this.ball.y >= this.field.height - 18);
+    const reachedKeeper = !goal && Math.hypot(this.ball.x - keeper.x, this.ball.y - keeper.y) < 24;
+    if (!crossedGoal && !reachedKeeper) return;
     this.pendingShotOutcome = null;
     if (goal) {
       this.ball.markGoal();
@@ -236,7 +257,7 @@ export class Game {
       .sort((a, b) => Math.hypot(a.x - keeper.x, a.y - keeper.y) - Math.hypot(b.x - keeper.x, b.y - keeper.y));
     const target = teammates[0] || { x: this.field.width / 2, y: this.field.height / 2 };
     this.aiDecision = `${keeper.name}: distribute`;
-    this.ball.passTo(this.clamp(target), keeper);
+    this.ball.passTo(this.clamp(target), keeper, target.team ? 'teammate' : 'space');
     if (target.setDestination) target.setDestination(this.clamp({ x: target.x, y: target.y + (keeper.team.side === 'top' ? 45 : -45) }));
   }
 
