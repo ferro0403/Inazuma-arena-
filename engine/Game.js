@@ -97,6 +97,10 @@ export class Game {
     requestAnimationFrame(t => this.loop(t));
   }
 
+  humanBallCarrier() {
+    return this.ball.carrier?.team === this.humanTeam && !this.ball.carrier.isStunned(this.nowMs) ? this.ball.carrier : null;
+  }
+
   select(player) {
     if (player?.isStunned(this.nowMs)) return;
     this.players.forEach(p => p.selected = false);
@@ -139,7 +143,8 @@ export class Game {
     if (!player || !player.hasBall || player.isStunned(this.nowMs)) return;
     const point = this.clamp(target);
     const type = target?.team === player.team ? 'teammate' : 'space';
-    this.ball.passTo(point, player, type);
+    const intendedReceiver = type === 'teammate' ? target : null;
+    this.ball.passTo(point, player, type, intendedReceiver);
     this.tapMarker = { x: point.x, y: point.y, until: this.nowMs + 450 };
     if (target?.team === player.team && !target.isStunned(this.nowMs)) {
       const lead = target.team.side === 'top' ? 35 : -35;
@@ -410,7 +415,11 @@ export class Game {
 
   resolveLooseBall() {
     if (this.ball.carrier || this.ball.state === 'shot' || this.ball.state === 'goal' || this.ball.state === 'saved') return;
-    const p = this.players.find(pl => !pl.isStunned(this.nowMs) && !(pl === this.ball.lastKicker && this.nowMs < this.ball.pickupBlockedUntil) && Math.hypot(pl.x - this.ball.x, pl.y - this.ball.y) < pl.radius + 14);
+    const eligible = pl => !pl.isStunned(this.nowMs) && !(pl === this.ball.lastKicker && this.nowMs < this.ball.pickupBlockedUntil);
+    const receiver = this.ball.intendedReceiver;
+    let p = null;
+    if (receiver && eligible(receiver) && Math.hypot(receiver.x - this.ball.x, receiver.y - this.ball.y) < receiver.radius + 26) p = receiver;
+    if (!p) p = this.players.find(pl => eligible(pl) && Math.hypot(pl.x - this.ball.x, pl.y - this.ball.y) < pl.radius + 14);
     if (p) { this.players.forEach(x => x.hasBall = false); this.ball.attach(p); if (p.team === this.humanTeam) this.select(p); }
   }
 

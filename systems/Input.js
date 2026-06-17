@@ -15,6 +15,12 @@ export class Input {
     if (this.game.paused) return;
     this.dragging = true; this.didDrag = false; this.start = this.pos(e); this.current = this.start;
     const hit = this.playerAt(this.start);
+    const carrier = this.game.humanBallCarrier();
+    if (carrier) {
+      this.dragPlayer = hit === carrier ? carrier : null;
+      if (this.dragPlayer) this.game.select(carrier);
+      return;
+    }
     this.dragPlayer = hit?.team === this.game.humanTeam ? hit : null;
     if (this.dragPlayer) this.game.select(this.dragPlayer);
   }
@@ -36,9 +42,10 @@ export class Input {
   }
   cancel() { this.dragging = false; this.didDrag = false; this.dragPlayer = null; this.start = null; this.current = null; this.game.preview = null; }
   handleTap(p) {
-    const carrier = this.game.selected?.hasBall ? this.game.selected : null;
+    const carrier = this.game.humanBallCarrier();
     const hit = this.playerAt(p);
     if (carrier) {
+      this.game.select(carrier);
       if (this.game.isInOpponentGoalArea(p)) { this.game.shoot(); return; }
       if (hit && hit.team === carrier.team && hit !== carrier) { this.game.passTo(hit); return; }
       this.game.passTo(p);
