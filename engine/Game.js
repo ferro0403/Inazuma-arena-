@@ -34,6 +34,8 @@ export class Game {
     this.carrierInsideGoalMouth = false;
     this.carrierCrossedGoalLine = false;
     this.goalTriggeredByCarrier = false;
+    this.primaryPresser = null;
+    this.lastPassLaneScore = 0;
     this.teams = [
       new Team('Raimon', 'bottom', { primary: '#ffd944', secondary: '#1d5fd0', keeper: '#39d98a' }),
       new Team('Alius', 'top', { primary: '#ee3434', secondary: '#171717', keeper: '#9f7cff' })
@@ -453,8 +455,12 @@ export class Game {
   checkDuel() {
     const carrier = this.ball.carrier;
     if (!carrier || carrier.role === 'goalkeeper' || carrier.isStunned(this.nowMs) || this.nowMs < this.duelLockedUntil || this.nowMs < carrier.duelCooldownUntil) return;
-    const foe = this.players.find(p => p.team !== carrier.team && p.role === 'field' && !p.isStunned(this.nowMs) && this.nowMs >= p.duelCooldownUntil && Math.hypot(p.x - carrier.x, p.y - carrier.y) < p.radius + carrier.radius + 8);
-    if (!foe) return;
+    const foe = this.primaryPresser;
+    if (!foe || foe.team === carrier.team || foe.role !== 'field' || foe.isStunned(this.nowMs) || this.nowMs < foe.duelCooldownUntil) return;
+    const distance = Math.hypot(foe.x - carrier.x, foe.y - carrier.y);
+    const attackDir = carrier.team.side === 'bottom' ? -1 : 1;
+    const inFront = (foe.y - carrier.y) * attackDir > -6;
+    if (distance >= foe.radius + carrier.radius + 4 || (!inFront && distance > foe.radius + carrier.radius - 2)) return;
     this.paused = true;
     carrier.destination = null;
     foe.destination = null;
