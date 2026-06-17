@@ -30,10 +30,12 @@ export class SimpleAI {
           if (p === team.players[2]) ty = carrier.y + 230 * dir; // forward run
         } else if (!attacking && game.ball.carrier) {
           const closest = this.closestTo(team.players.filter(x => x.role !== 'goalkeeper'), game.ball.carrier);
-          if (p === closest) { tx = game.ball.carrier.x; ty = game.ball.carrier.y; }
-          else if (Math.abs(game.ball.y - p.homeY) < 380) {
-            tx = p.homeX + (game.ball.x - p.homeX) * 0.28;
-            ty = p.homeY + (game.ball.y - p.homeY) * 0.28;
+          if (p === closest) {
+            tx = game.ball.carrier.x;
+            ty = game.ball.carrier.y + (team.side === 'bottom' ? 18 : -18);
+          } else if (Math.abs(game.ball.y - p.homeY) < 520) {
+            tx = p.homeX + (game.ball.x - p.homeX) * 0.42;
+            ty = p.homeY + (game.ball.y - p.homeY) * 0.42;
           }
         }
         if (attacking) tx += Math.sin(game.time * 1.7 + p.homeX) * 45;

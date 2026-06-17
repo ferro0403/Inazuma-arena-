@@ -414,12 +414,13 @@ export class Game {
   }
 
   resolveLooseBall() {
-    if (this.ball.carrier || this.ball.state === 'shot' || this.ball.state === 'goal' || this.ball.state === 'saved') return;
+    if (this.ball.carrier || this.ball.state === 'goal' || (this.ball.state === 'shot' && this.ball.speed > 250)) return;
     const eligible = pl => !pl.isStunned(this.nowMs) && !(pl === this.ball.lastKicker && this.nowMs < this.ball.pickupBlockedUntil);
+    const pickupRadius = pl => pl.radius + (pl.role === 'goalkeeper' ? 34 : 14);
     const receiver = this.ball.intendedReceiver;
     let p = null;
     if (receiver && eligible(receiver) && Math.hypot(receiver.x - this.ball.x, receiver.y - this.ball.y) < receiver.radius + 26) p = receiver;
-    if (!p) p = this.players.find(pl => eligible(pl) && Math.hypot(pl.x - this.ball.x, pl.y - this.ball.y) < pl.radius + 14);
+    if (!p) p = this.players.find(pl => eligible(pl) && Math.hypot(pl.x - this.ball.x, pl.y - this.ball.y) < pickupRadius(pl));
     if (p) { this.players.forEach(x => x.hasBall = false); this.ball.attach(p); if (p.team === this.humanTeam) this.select(p); }
   }
 
@@ -438,7 +439,7 @@ export class Game {
     const now = this.nowMs || performance.now();
     attacker.duelCooldownUntil = now + 1000;
     defender.duelCooldownUntil = now + 1000;
-    loser.stunnedUntil = now + 1000;
+    loser.stunnedUntil = now + 1500;
     loser.destination = null;
     this.knockBackLoser(loser, winner);
     this.players.forEach(p => p.hasBall = false);
