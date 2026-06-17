@@ -1,14 +1,16 @@
 export const BALL_TUNING = {
-  passSpeed: 650,
-  spacePassSpeed: 460,
-  shotSpeed: 900,
-  passFriction: 520,
-  looseFriction: 700,
-  shotFriction: 260,
-  maxPassSpeed: 700,
-  maxSpacePassSpeed: 520,
-  maxShotSpeed: 980,
-  minStopSpeed: 18,
+  teammatePassSpeed: 720,
+  spacePassSpeed: 620,
+  shotSpeed: 1050,
+  passFriction: 260,
+  spacePassFriction: 300,
+  looseFriction: 340,
+  shotFriction: 180,
+  maxPassSpeed: 780,
+  maxSpacePassSpeed: 680,
+  maxShotSpeed: 1120,
+  minStopSpeed: 8,
+  finalStopSpeed: 0.7,
   shortPassDistance: 180,
   longPassDistance: 520
 };
@@ -36,9 +38,9 @@ export class Ball {
     const dx = target.x - this.x, dy = target.y - this.y;
     const distance = Math.hypot(dx, dy);
     const t = Math.max(0, Math.min(1, (distance - this.tuning.shortPassDistance) / (this.tuning.longPassDistance - this.tuning.shortPassDistance)));
-    const base = passType === 'teammate' ? this.tuning.passSpeed : this.tuning.spacePassSpeed;
+    const base = passType === 'teammate' ? this.tuning.teammatePassSpeed : this.tuning.spacePassSpeed;
     const cap = passType === 'teammate' ? this.tuning.maxPassSpeed : this.tuning.maxSpacePassSpeed;
-    return Math.min(cap, base * (0.72 + 0.28 * t));
+    return Math.min(cap, base * (0.78 + 0.22 * t));
   }
   travelTo(target, fromPlayer, state, launchSpeed, passType, intendedReceiver = null) {
     const point = target && Number.isFinite(target.x) && Number.isFinite(target.y) ? { x: target.x, y: target.y } : null;
@@ -64,17 +66,21 @@ export class Ball {
   frictionForState() {
     if (this.state === 'shot') return this.tuning.shotFriction;
     if (this.state === 'loose') return this.tuning.looseFriction;
-    return this.lastPassType === 'space' ? this.tuning.passFriction * 1.25 : this.tuning.passFriction;
+    return this.lastPassType === 'space' ? this.tuning.spacePassFriction : this.tuning.passFriction;
   }
   update(dt) {
     this.validateState();
     if (this.carrier) { this.state='possessed'; this.x=this.carrier.x; this.y=this.carrier.y; this.vx=0; this.vy=0; this.speed=0; this.validatePosition(); return; }
     this.validatePosition();
     this.speed = Math.hypot(this.vx, this.vy);
-    if (this.speed <= this.tuning.minStopSpeed) { this.vx=0; this.vy=0; this.speed=0; if (this.state === 'pass') this.state='loose'; return; }
+    if (this.speed <= this.tuning.finalStopSpeed) { this.vx=0; this.vy=0; this.speed=0; if (this.state === 'pass') this.state='loose'; return; }
     this.x += this.vx * dt; this.y += this.vy * dt;
-    const nextSpeed = Math.max(0, this.speed - this.frictionForState() * dt);
-    if (nextSpeed <= this.tuning.minStopSpeed) { this.vx=0; this.vy=0; this.speed=0; if (this.state === 'pass') this.state='loose'; }
+    let nextSpeed = this.speed - this.frictionForState() * dt;
+    if (nextSpeed <= this.tuning.minStopSpeed) {
+      nextSpeed = this.speed * Math.pow(0.08, dt);
+      if (this.state === 'pass') this.state='loose';
+    }
+    if (nextSpeed <= this.tuning.finalStopSpeed) { this.vx=0; this.vy=0; this.speed=0; }
     else { const k = nextSpeed / this.speed; this.vx *= k; this.vy *= k; this.speed = nextSpeed; }
     this.validatePosition();
   }
