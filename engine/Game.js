@@ -106,11 +106,28 @@ export class Game {
 
   commandMove(p) {
     if (!this.selected || this.selected.isStunned(this.nowMs)) return;
-    this.selected.idleSince = 0;
-    const point = this.clamp(p);
-    this.selected.setDestination(point);
+    this.commandMoveTo(this.selected, p);
+  }
+
+  commandMoveTo(player, p) {
+    if (!player || player.isStunned(this.nowMs)) return;
+    player.idleSince = 0;
+    const point = this.clampPlayerInsideField(p);
+    player.setDestination(point);
     this.tapMarker = { x: point.x, y: point.y, until: this.nowMs + 500 };
-    this.preview = { from: this.selected, to: point };
+    this.preview = { from: player, to: point };
+  }
+
+  dragDirectionTarget(player, start, current) {
+    const dx = current.x - start.x, dy = current.y - start.y;
+    const distance = Math.hypot(dx, dy);
+    if (!Number.isFinite(distance) || distance < 0.0001) return { x: player.x, y: player.y };
+    const runLength = Math.min(320, Math.max(120, distance * 1.4));
+    return this.clampPlayerInsideField({ x: player.x + dx / distance * runLength, y: player.y + dy / distance * runLength });
+  }
+
+  commandMoveFromDrag(player, start, current) {
+    this.commandMoveTo(player, this.dragDirectionTarget(player, start, current));
   }
 
   passTo(target) {
