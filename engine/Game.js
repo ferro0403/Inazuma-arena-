@@ -273,6 +273,7 @@ export class Game {
     this.handleOutOfBounds();
     this.validateWorldState('update');
     this.resolveShotTravel();
+    this.resolveGoalkeeperCollection();
     this.resolveLooseBall();
     this.checkDuel();
     this.camera.follow(this.ball.carrier || this.ball || this.selected, dt);
@@ -421,13 +422,30 @@ export class Game {
     if (target.setDestination) target.setDestination(this.clamp({ x: target.x, y: target.y + (keeper.team.side === 'top' ? 45 : -45) }));
   }
 
+  resolveGoalkeeperCollection() {
+    const carrier = this.ball.carrier;
+    if (!carrier || carrier.role === 'goalkeeper' || carrier.isStunned(this.nowMs) || this.ball.state !== 'possessed') return;
+    const keeper = this.teams.find(team => team !== carrier.team)?.players[0];
+    if (!keeper || keeper.isStunned(this.nowMs)) return;
+    const inGoalArea = keeper.team.side === 'top' ? carrier.y < 245 : carrier.y > this.field.height - 245;
+    const closeEnough = Math.hypot(this.ball.x - keeper.x, this.ball.y - keeper.y) <= this.goalkeeperCollectionRadius;
+    if (!inGoalArea || !closeEnough) return;
+    carrier.hasBall = false;
+    carrier.destination = null;
+    this.players.forEach(p => p.hasBall = false);
+    this.ball.attach(keeper);
+    this.pendingDistributionAt = this.nowMs + 650;
+    this.aiDecision = `${keeper.name}: collected dribble`;
+  }
+
   resolveLooseBall() {
     if (this.ball.carrier || this.ball.state === 'goal' || (this.ball.state === 'shot' && this.ball.speed > 250)) return;
     const eligible = pl => !pl.isStunned(this.nowMs) && !(pl === this.ball.lastKicker && this.nowMs < this.ball.pickupBlockedUntil);
     const pickupRadius = pl => pl.role === 'goalkeeper' ? this.goalkeeperCollectionRadius : pl.radius + 14;
+    const keeper = this.players.find(pl => pl.role === 'goalkeeper' && eligible(pl) && Math.hypot(pl.x - this.ball.x, pl.y - this.ball.y) < pickupRadius(pl));
     const receiver = this.ball.intendedReceiver;
-    let p = null;
-    if (receiver && eligible(receiver) && Math.hypot(receiver.x - this.ball.x, receiver.y - this.ball.y) < receiver.radius + 26) p = receiver;
+    let p = keeper || null;
+    if (!p && receiver && eligible(receiver) && Math.hypot(receiver.x - this.ball.x, receiver.y - this.ball.y) < receiver.radius + 26) p = receiver;
     if (!p) p = this.players.find(pl => eligible(pl) && Math.hypot(pl.x - this.ball.x, pl.y - this.ball.y) < pickupRadius(pl));
     if (p) { this.players.forEach(x => x.hasBall = false); this.ball.attach(p); if (p.team === this.humanTeam) this.select(p); }
   }
