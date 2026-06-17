@@ -30,6 +30,10 @@ export class Game {
     this.matchState = 'play';
     this.lastBoundary = 'none';
     this.lastBoundaryCheck = { x: this.field.width / 2, y: this.field.height / 2 };
+    this.goalkeeperCollectionRadius = 72;
+    this.carrierInsideGoalMouth = false;
+    this.carrierCrossedGoalLine = false;
+    this.goalTriggeredByCarrier = false;
     this.teams = [
       new Team('Raimon', 'bottom', { primary: '#ffd944', secondary: '#1d5fd0', keeper: '#39d98a' }),
       new Team('Alius', 'top', { primary: '#ee3434', secondary: '#171717', keeper: '#9f7cff' })
@@ -312,6 +316,10 @@ export class Game {
     const checkX = carrier ? carrier.x : this.ball.x;
     const checkY = carrier ? carrier.y : this.ball.y;
     this.lastBoundaryCheck = { x: checkX, y: checkY };
+    const insideGoalMouth = checkX >= 360 && checkX <= 540;
+    this.carrierInsideGoalMouth = !!carrier && insideGoalMouth;
+    this.carrierCrossedGoalLine = !!carrier && insideGoalMouth && ((carrier.team.side === 'bottom' && checkY <= 20) || (carrier.team.side === 'top' && checkY >= this.field.height - 20));
+    if (this.carrierCrossedGoalLine) { this.triggerGoal(carrier.team, true); return; }
     const crossedSide = checkX < 0 || checkX > this.field.width;
     const crossedTop = checkY < 0;
     const crossedBottom = checkY > this.field.height;
@@ -326,10 +334,9 @@ export class Game {
       this.prepareRestart('throw_in', awardTeam, { x: checkX < 0 ? 18 : this.field.width - 18, y: Math.max(80, Math.min(this.field.height - 80, checkY)) });
       return;
     }
-    const insideGoalMouth = checkX >= 360 && checkX <= 540;
     const goalLineTeam = crossedTop ? this.teams.find(t => t.side === 'top') : this.teams.find(t => t.side === 'bottom');
     const attackingTeam = this.teams.find(t => t !== goalLineTeam);
-    if (insideGoalMouth) { this.triggerGoal(attackingTeam); return; }
+    if (insideGoalMouth) { this.triggerGoal(attackingTeam, false); return; }
     if (lastTeam === attackingTeam) {
       this.prepareRestart('goal_kick', goalLineTeam, { x: this.field.width / 2, y: crossedTop ? 95 : this.field.height - 95 });
     } else {
@@ -337,7 +344,8 @@ export class Game {
     }
   }
 
-  triggerGoal(scoringTeam) {
+  triggerGoal(scoringTeam, byCarrier = false) {
+    this.goalTriggeredByCarrier = byCarrier;
     this.matchState = 'goal';
     this.paused = true;
     this.ball.markGoal();
@@ -416,7 +424,7 @@ export class Game {
   resolveLooseBall() {
     if (this.ball.carrier || this.ball.state === 'goal' || (this.ball.state === 'shot' && this.ball.speed > 250)) return;
     const eligible = pl => !pl.isStunned(this.nowMs) && !(pl === this.ball.lastKicker && this.nowMs < this.ball.pickupBlockedUntil);
-    const pickupRadius = pl => pl.radius + (pl.role === 'goalkeeper' ? 34 : 14);
+    const pickupRadius = pl => pl.role === 'goalkeeper' ? this.goalkeeperCollectionRadius : pl.radius + 14;
     const receiver = this.ball.intendedReceiver;
     let p = null;
     if (receiver && eligible(receiver) && Math.hypot(receiver.x - this.ball.x, receiver.y - this.ball.y) < receiver.radius + 26) p = receiver;

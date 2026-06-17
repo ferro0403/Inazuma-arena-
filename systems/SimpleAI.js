@@ -18,7 +18,13 @@ export class SimpleAI {
       for (const p of team.players) {
         if (p.selected || p.hasBall || p.isStunned(game.nowMs)) continue;
         if (chasers.has(p)) { p.setDestination(game.clamp({ x: game.ball.x, y: game.ball.y })); continue; }
-        if (p.role === 'goalkeeper') { p.setDestination(game.clamp({ x: 450, y: team.side === 'top' ? 88 : 1412 })); continue; }
+        if (p.role === 'goalkeeper') {
+          const collectible = game.ball.state === 'loose' || game.ball.state === 'pass' || game.ball.state === 'saved' || (game.ball.state === 'shot' && game.ball.speed < 250);
+          const homeY = team.side === 'top' ? 88 : 1412;
+          const inKeeperZone = collectible && Math.abs(game.ball.y - homeY) < 185 && Math.hypot(p.x - game.ball.x, p.y - game.ball.y) < game.goalkeeperCollectionRadius + 78;
+          p.setDestination(game.clamp(inKeeperZone ? { x: game.ball.x, y: game.ball.y } : { x: 450, y: homeY }));
+          continue;
+        }
         const dir = team.side === 'bottom' ? -1 : 1;
         let tx = p.homeX;
         let ty = p.homeY + (attacking ? 150 * dir : 35 * dir);
