@@ -29,6 +29,7 @@ export class Game {
     this.restartAt = 0;
     this.matchState = 'play';
     this.lastBoundary = 'none';
+    this.lastBoundaryCheck = { x: this.field.width / 2, y: this.field.height / 2 };
     this.teams = [
       new Team('Raimon', 'bottom', { primary: '#ffd944', secondary: '#1d5fd0', keeper: '#39d98a' }),
       new Team('Alius', 'top', { primary: '#ee3434', secondary: '#171717', keeper: '#9f7cff' })
@@ -190,17 +191,21 @@ export class Game {
     this.ball.validateState();
     for (const player of this.players) {
       player.validatePosition({ x: player.homeX, y: player.homeY });
-      const clamped = this.clamp(player);
+      const clamped = this.clampPlayerInsideField(player);
       if (clamped.x !== player.x || clamped.y !== player.y) {
         console.warn('Clamped player inside field', { source, player: player.name, x: player.x, y: player.y });
         player.x = clamped.x;
         player.y = clamped.y;
       }
-      if (player.destination) player.setDestination(this.clamp(player.destination));
+      if (player.destination) player.setDestination(this.clampPlayerInsideField(player.destination));
     }
     this.ball.validatePosition({ x: this.field.width / 2, y: this.field.height / 2 });
     if (this.shouldClampBallForState()) this.clampBallForSafeReset('validateWorldState');
     this.camera.clamp();
+  }
+
+  clampPlayerInsideField(player) {
+    return this.clamp(player);
   }
 
   shouldClampBallForState() {
@@ -251,6 +256,10 @@ export class Game {
   updateCarrierIdle() {
     const carrier = this.ball.carrier;
     if (!carrier || carrier.destination || carrier.isStunned(this.nowMs) || this.paused) return;
+    if (carrier.role === 'goalkeeper') {
+      if (!this.pendingDistributionAt) this.pendingDistributionAt = this.nowMs + 500;
+      return;
+    }
     if (!carrier.idleSince) carrier.idleSince = this.nowMs;
     if (carrier.team === this.humanTeam && this.nowMs - carrier.idleSince < 500) return;
     const dir = carrier.team.side === 'bottom' ? -1 : 1;
@@ -276,26 +285,33 @@ export class Game {
   }
 
   handleOutOfBounds() {
-    if (this.matchState === 'restart' || this.pendingRestart || this.ball.carrier || this.ball.state === 'goal') return;
-    const crossedSide = this.ball.x < 0 || this.ball.x > this.field.width;
-    const crossedTop = this.ball.y < 0;
-    const crossedBottom = this.ball.y > this.field.height;
+    if (this.matchState === 'restart' || this.pendingRestart || this.ball.state === 'goal') return;
+    const carrier = this.ball.carrier;
+    const checkX = carrier ? carrier.x : this.ball.x;
+    const checkY = carrier ? carrier.y : this.ball.y;
+    this.lastBoundaryCheck = { x: checkX, y: checkY };
+    const crossedSide = checkX < 0 || checkX > this.field.width;
+    const crossedTop = checkY < 0;
+    const crossedBottom = checkY > this.field.height;
     if (!crossedSide && !crossedTop && !crossedBottom) return;
-    this.lastBoundary = crossedSide ? (this.ball.x < 0 ? 'left' : 'right') : (crossedTop ? 'top' : 'bottom');
+    if (carrier) {
+      this.ball.x = checkX; this.ball.y = checkY; this.ball.lastTouch = carrier; this.ball.lastTouchTeam = carrier.team; carrier.hasBall = false; carrier.destination = null; this.ball.setLoose();
+    }
+    this.lastBoundary = crossedSide ? (checkX < 0 ? 'left' : 'right') : (crossedTop ? 'top' : 'bottom');
     const lastTeam = this.ball.lastTouchTeam || this.ball.lastTouch?.team || this.ball.lastKicker?.team || this.humanTeam;
     if (crossedSide) {
       const awardTeam = this.teams.find(t => t !== lastTeam);
-      this.prepareRestart('throw_in', awardTeam, { x: this.ball.x < 0 ? 18 : this.field.width - 18, y: Math.max(80, Math.min(this.field.height - 80, this.ball.y)) });
+      this.prepareRestart('throw_in', awardTeam, { x: checkX < 0 ? 18 : this.field.width - 18, y: Math.max(80, Math.min(this.field.height - 80, checkY)) });
       return;
     }
-    const insideGoalMouth = this.ball.x >= 360 && this.ball.x <= 540;
+    const insideGoalMouth = checkX >= 360 && checkX <= 540;
     const goalLineTeam = crossedTop ? this.teams.find(t => t.side === 'top') : this.teams.find(t => t.side === 'bottom');
     const attackingTeam = this.teams.find(t => t !== goalLineTeam);
     if (insideGoalMouth) { this.triggerGoal(attackingTeam); return; }
     if (lastTeam === attackingTeam) {
       this.prepareRestart('goal_kick', goalLineTeam, { x: this.field.width / 2, y: crossedTop ? 95 : this.field.height - 95 });
     } else {
-      this.prepareRestart('corner', attackingTeam, { x: this.ball.x < this.field.width / 2 ? 55 : this.field.width - 55, y: crossedTop ? 55 : this.field.height - 55 });
+      this.prepareRestart('corner', attackingTeam, { x: checkX < this.field.width / 2 ? 55 : this.field.width - 55, y: crossedTop ? 55 : this.field.height - 55 });
     }
   }
 
