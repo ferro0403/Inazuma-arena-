@@ -32,11 +32,16 @@ export class SimpleAI {
         if (p.selected || p.hasBall || p.isStunned(game.nowMs)) continue;
         if (chasers.has(p)) { const chasePoint = p === game.ball.intendedReceiver && game.ball.predictedReceivePoint ? game.ball.predictedReceivePoint : game.ball; p.supportRole = p === game.ball.intendedReceiver ? 'intended receiver' : 'loose chase'; p.setDestination(game.clamp(chasePoint)); continue; }
         if (p.role === 'goalkeeper') {
-          const collectible = game.ball.state === 'loose' || game.ball.state === 'pass' || game.ball.state === 'saved' || (game.ball.state === 'shot' && game.ball.speed < 250);
           const homeY = team.side === 'top' ? 88 : 1412;
+          const carrierThreat = game.ball.carrier && game.ball.carrier.team !== team && game.ball.carrier.role !== 'goalkeeper';
+          const inPenalty = carrierThreat && (team.side === 'top' ? game.ball.carrier.y < 285 : game.ball.carrier.y > game.field.height - 285);
+          const inMouth = carrierThreat && game.ball.carrier.x >= 360 && game.ball.carrier.x <= 540;
+          const lineThreat = inMouth && (team.side === 'top' ? game.ball.carrier.y < 145 : game.ball.carrier.y > game.field.height - 145);
+          const rushCarrier = inPenalty && (lineThreat || Math.hypot(p.x - game.ball.carrier.x, p.y - game.ball.carrier.y) < game.goalkeeperCollectionRadius + 130);
+          const collectible = game.ball.state === 'loose' || game.ball.state === 'pass' || game.ball.state === 'saved' || (game.ball.state === 'shot' && game.ball.speed < 250);
           const inKeeperZone = collectible && Math.abs(game.ball.y - homeY) < 185 && Math.hypot(p.x - game.ball.x, p.y - game.ball.y) < game.goalkeeperCollectionRadius + 78;
-          p.supportRole = inKeeperZone ? 'keeper collect' : 'keeper home';
-          p.setDestination(game.clamp(inKeeperZone ? { x: game.ball.x, y: game.ball.y } : { x: 450, y: homeY }));
+          p.supportRole = rushCarrier ? 'keeper rush' : (inKeeperZone ? 'keeper collect' : 'keeper home');
+          p.setDestination(game.clamp(rushCarrier ? { x: game.ball.carrier.x, y: game.ball.carrier.y } : (inKeeperZone ? { x: game.ball.x, y: game.ball.y } : { x: 450, y: homeY })));
           continue;
         }
         let target;

@@ -34,6 +34,8 @@ export class Game {
     this.carrierInsideGoalMouth = false;
     this.carrierCrossedGoalLine = false;
     this.goalTriggeredByCarrier = false;
+    this.goalkeeperRushActive = false;
+    this.attackerInKeeperDangerZone = false;
     this.primaryPresser = null;
     this.lastPassLaneScore = 0;
     this.teams = [
@@ -472,12 +474,22 @@ export class Game {
 
   resolveGoalkeeperCollection() {
     const carrier = this.ball.carrier;
+    this.goalkeeperRushActive = false;
+    this.attackerInKeeperDangerZone = false;
     if (!carrier || carrier.role === 'goalkeeper' || carrier.isStunned(this.nowMs) || this.ball.state !== 'possessed') return;
     const keeper = this.teams.find(team => team !== carrier.team)?.players[0];
     if (!keeper || keeper.isStunned(this.nowMs)) return;
-    const inGoalArea = keeper.team.side === 'top' ? carrier.y < 245 : carrier.y > this.field.height - 245;
-    const closeEnough = Math.hypot(this.ball.x - keeper.x, this.ball.y - keeper.y) <= this.goalkeeperCollectionRadius;
-    if (!inGoalArea || !closeEnough) return;
+    const inGoalArea = keeper.team.side === 'top' ? carrier.y < 285 : carrier.y > this.field.height - 285;
+    const insideGoalMouth = carrier.x >= 360 && carrier.x <= 540;
+    const goalLineThreat = insideGoalMouth && (keeper.team.side === 'top' ? carrier.y < 145 : carrier.y > this.field.height - 145);
+    const distance = Math.hypot(this.ball.x - keeper.x, this.ball.y - keeper.y);
+    const inDanger = inGoalArea && (distance < this.goalkeeperCollectionRadius + 110 || goalLineThreat);
+    this.attackerInKeeperDangerZone = inDanger;
+    this.goalkeeperRushActive = inDanger;
+    if (!inDanger) return;
+    keeper.setDestination(this.clamp({ x: carrier.x, y: carrier.y }));
+    const closeEnough = distance <= this.goalkeeperCollectionRadius;
+    if (!closeEnough) return;
     carrier.hasBall = false;
     carrier.destination = null;
     this.players.forEach(p => p.hasBall = false);

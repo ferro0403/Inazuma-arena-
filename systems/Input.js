@@ -16,12 +16,6 @@ export class Input {
     if (this.game.paused) return;
     this.dragging = true; this.didDrag = false; this.pointerDownAt = performance.now(); this.start = this.pos(e); this.current = this.start;
     const hit = this.playerAt(this.start);
-    const carrier = this.game.humanBallCarrier();
-    if (carrier) {
-      this.dragPlayer = hit === carrier ? carrier : null;
-      if (this.dragPlayer) this.game.select(carrier);
-      return;
-    }
     this.dragPlayer = hit?.team === this.game.humanTeam ? hit : null;
     if (this.dragPlayer) this.game.select(this.dragPlayer);
   }
