@@ -5,6 +5,8 @@ export class Player {
     this.radius = role === 'goalkeeper' ? 19 : 17;
     this.speed = role === 'goalkeeper' ? 89 : 122;
     this.destination = null;
+    this.movementTarget = null;
+    this.movementCommandActive = false;
     this.hasBall = false;
     this.selected = false;
     this.stats = { dribble: 45, tackle: 42, shoot: 44, save: 44, technique: 50, ...stats };
@@ -19,18 +21,21 @@ export class Player {
 
   isStunned(now = performance.now()) { return now < this.stunnedUntil; }
 
-  setDestination(x, y) {
+  setDestination(x, y, manual = false) {
     const next = typeof x === 'object' ? x : { x, y };
     if (!next || !Number.isFinite(next.x) || !Number.isFinite(next.y)) {
       console.warn('Rejected invalid player destination', { player: this.name, destination: next });
       this.destination = null;
+      if (manual) { this.movementTarget = null; this.movementCommandActive = false; }
       return;
     }
     if (this.isStunned()) {
-      this.destination = null;
+      this.destination = null; this.movementTarget = null; this.movementCommandActive = false;
       return;
     }
+    if (!manual && this.movementCommandActive) return;
     this.destination = { x: next.x, y: next.y };
+    if (manual) { this.movementTarget = { ...this.destination }; this.movementCommandActive = true; }
     this.idleSince = 0;
   }
 
@@ -40,22 +45,24 @@ export class Player {
     this.x = Number.isFinite(fallback.x) ? fallback.x : 0;
     this.y = Number.isFinite(fallback.y) ? fallback.y : 0;
     this.destination = null;
+    this.movementTarget = null;
+    this.movementCommandActive = false;
   }
 
   update(dt) {
     this.validatePosition();
-    if (this.isStunned()) { this.destination = null; return; }
+    if (this.isStunned()) { this.destination = null; this.movementTarget = null; this.movementCommandActive = false; return; }
     if (!this.destination) return;
     if (!Number.isFinite(this.destination.x) || !Number.isFinite(this.destination.y)) {
       console.warn('Cleared invalid player destination', { player: this.name, destination: this.destination });
-      this.destination = null;
+      this.destination = null; this.movementTarget = null; this.movementCommandActive = false;
       return;
     }
     const dx = this.destination.x - this.x;
     const dy = this.destination.y - this.y;
     const distance = Math.hypot(dx, dy);
-    if (!Number.isFinite(distance) || distance <= 0.0001) { this.destination = null; return; }
-    if (distance < 3) { this.destination = null; this.idleSince = performance.now(); return; }
+    if (!Number.isFinite(distance) || distance <= 0.0001) { this.destination = null; this.movementTarget = null; this.movementCommandActive = false; return; }
+    if (distance < 3) { this.destination = null; this.movementTarget = null; this.movementCommandActive = false; this.idleSince = performance.now(); return; }
     const step = Math.min(distance, this.speed * dt);
     this.x += (dx / distance) * step;
     this.y += (dy / distance) * step;

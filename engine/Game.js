@@ -125,7 +125,7 @@ export class Game {
     if (!player || player.isStunned(this.nowMs)) return;
     player.idleSince = 0;
     const point = this.clampPlayerInsideField(p);
-    player.setDestination(point);
+    player.setDestination(point, true)
     this.tapMarker = { x: point.x, y: point.y, until: this.nowMs + 500 };
     this.preview = { from: player, to: point };
   }
@@ -338,7 +338,7 @@ export class Game {
       return;
     }
     if (!carrier.idleSince) carrier.idleSince = this.nowMs;
-    if (carrier.team === this.humanTeam && this.nowMs - carrier.idleSince < 500) return;
+    if (carrier.team === this.humanTeam && this.nowMs - carrier.idleSince < 230) return;
     const dir = carrier.team.side === 'bottom' ? -1 : 1;
     carrier.setDestination(this.clamp({ x: carrier.x + (this.field.width / 2 - carrier.x) * 0.18, y: carrier.y + dir * 120 }));
   }
@@ -521,8 +521,8 @@ export class Game {
     const inFront = (foe.y - carrier.y) * attackDir > -6;
     if (distance >= foe.radius + carrier.radius + 4 || (!inFront && distance > foe.radius + carrier.radius - 2)) return;
     this.paused = true;
-    carrier.destination = null;
-    foe.destination = null;
+    carrier.destination = null; carrier.movementTarget = null; carrier.movementCommandActive = false;
+    foe.destination = null; foe.movementTarget = null; foe.movementCommandActive = false;
     this.duelSystem.start(carrier, foe, ({ winner, loser }) => this.resolveDuel(carrier, foe, winner, loser));
   }
 
@@ -531,7 +531,7 @@ export class Game {
     attacker.duelCooldownUntil = now + 1000;
     defender.duelCooldownUntil = now + 1000;
     loser.stunnedUntil = now + 1500;
-    loser.destination = null;
+    loser.destination = null; loser.movementTarget = null; loser.movementCommandActive = false;
     this.knockBackLoser(loser, winner);
     this.players.forEach(p => p.hasBall = false);
     this.ball.attach(winner);

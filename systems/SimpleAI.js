@@ -29,7 +29,7 @@ export class SimpleAI {
 
       const supportTargets = attacking && carrier ? this.supportTargets(game, team, carrier) : new Map();
       for (const p of team.players) {
-        if (p.selected || p.hasBall || p.isStunned(game.nowMs)) continue;
+        if (p.selected || p.hasBall || p.isStunned(game.nowMs) || p.movementCommandActive) continue;
         if (chasers.has(p)) { const chasePoint = p === game.ball.intendedReceiver && game.ball.predictedReceivePoint ? game.ball.predictedReceivePoint : game.ball; p.supportRole = p === game.ball.intendedReceiver ? 'intended receiver' : 'loose chase'; p.setDestination(game.clamp(chasePoint)); continue; }
         if (p.role === 'goalkeeper') {
           const homeY = team.side === 'top' ? 88 : 1412;
