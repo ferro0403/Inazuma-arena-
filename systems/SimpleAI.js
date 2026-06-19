@@ -153,25 +153,35 @@ export class SimpleAI {
     const distanceToGoal = goalY - carrier.y;
     const nearestOpponent = this.closestTo(game.humanTeam.players.filter(p => !p.isStunned(game.nowMs)), carrier);
     const pressure = nearestOpponent ? Math.hypot(nearestOpponent.x - carrier.x, nearestOpponent.y - carrier.y) : Infinity;
+    const heavyPressure = pressure < 95;
+    const passCooldown = game.nowMs - (carrier.receivedAt || 0) < 650;
     const teammates = carrier.team.players.filter(p => p !== carrier && p.role !== 'goalkeeper' && !p.isStunned(game.nowMs));
     const ranked = teammates
-      .map(p => ({ player: p, score: this.passLaneScore(game, carrier, p) }))
+      .map(p => ({ player: p, score: this.passLaneScore(game, carrier, p), progress: p.y - carrier.y, distance: Math.hypot(p.x - carrier.x, p.y - carrier.y) }))
       .sort((a, b) => b.score - a.score);
-    const openMate = ranked[0]?.player;
-    game.lastPassLaneScore = Math.round(ranked[0]?.score ?? 0);
+    const progressive = ranked.find(r => r.progress > 85 && r.score > 135);
+    const diagonal = ranked.find(r => r.progress > 45 && Math.abs(r.player.x - carrier.x) > 80 && r.score > 120);
+    const openMate = ranked[0];
+    game.lastPassLaneScore = Math.round(openMate?.score ?? 0);
 
     if (distanceToGoal < 300 && pressure > 105) {
       game.aiDecision = `${carrier.name}: shot`; game.startAIShot(carrier); return;
     }
-    if (openMate && (ranked[0].score > 150 || pressure < 150)) {
-      game.aiDecision = `${carrier.name}: pass lane ${openMate.name}`; game.passFrom(carrier, openMate); return;
+    if ((!passCooldown || heavyPressure) && progressive) {
+      game.aiDecision = `${carrier.name}: forward pass ${progressive.player.name}`; game.passFrom(carrier, progressive.player); return;
     }
-    if (pressure > 175) {
-      game.aiDecision = `${carrier.name}: dribble space`; carrier.setDestination(game.clamp({ x: carrier.x + (450 - carrier.x) * 0.2, y: carrier.y + 145 })); return;
+    if ((!passCooldown || heavyPressure) && diagonal) {
+      game.aiDecision = `${carrier.name}: diagonal pass ${diagonal.player.name}`; game.passFrom(carrier, diagonal.player); return;
     }
-    const support = ranked.find(r => r.player.y < carrier.y + 80)?.player || openMate;
-    if (support) { game.aiDecision = `${carrier.name}: recycle ${support.name}`; game.passFrom(carrier, support); return; }
-    game.aiDecision = `${carrier.name}: hold`; carrier.setDestination(game.clamp({ x: carrier.x + (450 - carrier.x) * 0.12, y: carrier.y + 55 }));
+    if (pressure > 150) {
+      game.aiDecision = `${carrier.name}: vertical dribble`; carrier.setDestination(game.clamp({ x: carrier.x + (450 - carrier.x) * 0.18, y: carrier.y + 155 })); return;
+    }
+    if ((!passCooldown || heavyPressure) && heavyPressure && openMate) {
+      game.aiDecision = `${carrier.name}: pressure release ${openMate.player.name}`; game.passFrom(carrier, openMate.player); return;
+    }
+    const support = ranked.find(r => r.progress > -95 && r.distance > 120)?.player;
+    if (!passCooldown && support) { game.aiDecision = `${carrier.name}: support pass ${support.name}`; game.passFrom(carrier, support); return; }
+    game.aiDecision = `${carrier.name}: hold forward`; carrier.setDestination(game.clamp({ x: carrier.x + (450 - carrier.x) * 0.1, y: carrier.y + 75 }));
   }
 
   passLaneScore(game, carrier, teammate) {
@@ -181,7 +191,7 @@ export class SimpleAI {
     const lateral = Math.abs(teammate.x - carrier.x);
     const spacing = Math.hypot(teammate.x - carrier.x, teammate.y - carrier.y);
     const spacingBonus = spacing > 115 ? 40 : -60;
-    return nearestOpponent * 0.65 + progress * 0.45 - lateral * 0.12 + spacingBonus;
+    return nearestOpponent * 0.62 + progress * 0.85 - lateral * 0.1 + spacingBonus;
   }
 
   closestTo(players, target) { return players.sort((a, b) => Math.hypot(a.x-target.x,a.y-target.y) - Math.hypot(b.x-target.x,b.y-target.y))[0]; }

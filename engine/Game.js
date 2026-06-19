@@ -140,18 +140,18 @@ export class Game {
     this.commandMoveTo(player, this.dragDirectionTarget(player, start, current));
   }
 
-  passTo(target) {
+  passTo(target, options = {}) {
     if (!this.selected || !this.selected.hasBall || this.selected.isStunned(this.nowMs)) return;
-    this.passFrom(this.selected, target);
+    this.passFrom(this.selected, target, options);
   }
 
-  passFrom(player, target) {
+  passFrom(player, target, options = {}) {
     if (!player || !player.hasBall || player.isStunned(this.nowMs)) return;
     const point = this.clamp(target);
     const type = target?.team === player.team ? 'teammate' : 'space';
     const intendedReceiver = type === 'teammate' ? target : null;
-    this.ball.passTo(point, player, type, intendedReceiver);
-    this.tapMarker = { x: point.x, y: point.y, until: this.nowMs + 450 };
+    this.ball.passTo(point, player, type, intendedReceiver, options.lob);
+    this.tapMarker = { x: point.x, y: point.y, until: this.nowMs + 450, lob: !!options.lob };
     if (target?.team === player.team && !target.isStunned(this.nowMs)) {
       const lead = target.team.side === 'top' ? 35 : -35;
       target.setDestination(this.clamp({ x: point.x, y: point.y + lead }));
@@ -441,7 +441,7 @@ export class Game {
   }
 
   resolveLooseBall() {
-    if (this.ball.carrier || this.ball.state === 'goal' || (this.ball.state === 'shot' && this.ball.speed > 250)) return;
+    if (this.ball.carrier || this.ball.state === 'goal' || (this.ball.state === 'shot' && this.ball.speed > 250) || (this.ball.state === 'lob_pass' && this.ball.z > 14)) return;
     const eligible = pl => !pl.isStunned(this.nowMs) && !(pl === this.ball.lastKicker && this.nowMs < this.ball.pickupBlockedUntil);
     const pickupRadius = pl => pl.role === 'goalkeeper' ? this.goalkeeperCollectionRadius : pl.radius + 14;
     const keeper = this.players.find(pl => pl.role === 'goalkeeper' && eligible(pl) && Math.hypot(pl.x - this.ball.x, pl.y - this.ball.y) < pickupRadius(pl));
@@ -566,10 +566,12 @@ export class Game {
     if (this.ball.state === 'shot' && this.ball.target) {
       c.strokeStyle = '#ffffff88'; c.lineWidth = 4; c.beginPath(); c.moveTo(this.ball.x, this.ball.y); c.lineTo(this.ball.x + (this.ball.x - this.ball.target.x) * 0.08, this.ball.y + (this.ball.y - this.ball.target.y) * 0.08); c.stroke();
     }
+    if (this.ball.state === 'lob_pass') { c.strokeStyle = '#fff6a8aa'; c.lineWidth = 3; c.setLineDash([10, 8]); c.beginPath(); c.arc(this.ball.x, this.ball.y, 22 + this.ball.z * 0.25, 0, Math.PI * 2); c.stroke(); c.setLineDash([]); }
     c.fillStyle = '#0008'; c.beginPath(); c.ellipse(this.ball.x+3,this.ball.y+5,8,4,0,0,Math.PI*2); c.fill();
-    c.fillStyle = '#ffffff'; c.beginPath(); c.arc(this.ball.x,this.ball.y,8,0,Math.PI*2); c.fill();
+    const drawY = this.ball.y - (this.ball.z || 0); const drawR = Math.max(5, 8 - (this.ball.z || 0) * 0.035);
+    c.fillStyle = '#ffffff'; c.beginPath(); c.arc(this.ball.x,drawY,drawR,0,Math.PI*2); c.fill();
     c.strokeStyle='#111'; c.lineWidth = 2; c.stroke();
-    c.strokeStyle = '#222'; c.lineWidth = 1; c.beginPath(); c.moveTo(this.ball.x-5,this.ball.y); c.lineTo(this.ball.x+5,this.ball.y); c.moveTo(this.ball.x,this.ball.y-5); c.lineTo(this.ball.x,this.ball.y+5); c.stroke();
+    c.strokeStyle = '#222'; c.lineWidth = 1; c.beginPath(); c.moveTo(this.ball.x-5,drawY); c.lineTo(this.ball.x+5,drawY); c.moveTo(this.ball.x,drawY-5); c.lineTo(this.ball.x,drawY+5); c.stroke();
   }
 
   drawOverlay(c) {

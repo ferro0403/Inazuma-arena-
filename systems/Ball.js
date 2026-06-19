@@ -1,6 +1,7 @@
 export const BALL_TUNING = {
   teammatePassSpeed: 670,
   spacePassSpeed: 575,
+  lobPassSpeed: 500,
   shotSpeed: 980,
   passFriction: 260,
   spacePassFriction: 300,
@@ -19,7 +20,8 @@ export class Ball {
   constructor(x, y) {
     this.x = Number.isFinite(x) ? x : 450;
     this.y = Number.isFinite(y) ? y : 750;
-    this.vx = 0; this.vy = 0; this.speed = 0;
+    this.vx = 0; this.vy = 0; this.speed = 0; this.z = 0;
+    this.lobElapsed = 0; this.lobDuration = 0;
     this.tuning = { ...BALL_TUNING };
     this.carrier = null; this.target = null; this.state = 'loose';
     this.lastKicker = null; this.pickupBlockedUntil = 0; this.arrived = false;
@@ -30,15 +32,15 @@ export class Ball {
     if (!player || !Number.isFinite(player.x) || !Number.isFinite(player.y) || player.isStunned?.(performance.now())) { console.warn('Cannot attach ball', player); this.setLoose(); return; }
     if (this.carrier) this.carrier.hasBall = false;
     this.carrier = player; player.hasBall = true; this.lastTouch = player; this.lastTouchTeam = player.team; this.target = null; this.vx = 0; this.vy = 0; this.speed = 0;
-    this.lastKicker = null; this.pickupBlockedUntil = 0; this.arrived = false; this.intendedReceiver = null; this.state = 'possessed'; this.x = player.x; this.y = player.y;
+    this.lastKicker = null; this.pickupBlockedUntil = 0; this.arrived = false; this.intendedReceiver = null; this.z = 0; this.lobElapsed = 0; this.lobDuration = 0; player.receivedAt = performance.now(); this.state = 'possessed'; this.x = player.x; this.y = player.y;
   }
-  passTo(target, fromPlayer, passType = 'space', intendedReceiver = null) { this.travelTo(target, fromPlayer, 'pass', this.speedForPass(target, passType), passType, intendedReceiver); }
+  passTo(target, fromPlayer, passType = 'space', intendedReceiver = null, lob = false) { this.travelTo(target, fromPlayer, lob ? 'lob_pass' : 'pass', this.speedForPass(target, passType, lob), lob ? `${passType}-lob` : passType, intendedReceiver); }
   shootTo(target, fromPlayer) { this.travelTo(target, fromPlayer, 'shot', this.tuning.shotSpeed, 'shot', null); }
-  speedForPass(target, passType) {
+  speedForPass(target, passType, lob = false) {
     const dx = target.x - this.x, dy = target.y - this.y;
     const distance = Math.hypot(dx, dy);
     const t = Math.max(0, Math.min(1, (distance - this.tuning.shortPassDistance) / (this.tuning.longPassDistance - this.tuning.shortPassDistance)));
-    const base = passType === 'teammate' ? this.tuning.teammatePassSpeed : this.tuning.spacePassSpeed;
+    const base = lob ? this.tuning.lobPassSpeed : (passType === 'teammate' ? this.tuning.teammatePassSpeed : this.tuning.spacePassSpeed);
     const cap = passType === 'teammate' ? this.tuning.maxPassSpeed : this.tuning.maxSpacePassSpeed;
     return Math.min(cap, base * (0.78 + 0.22 * t));
   }
@@ -50,15 +52,16 @@ export class Ball {
     const cappedSpeed = state === 'shot' ? Math.min(this.tuning.maxShotSpeed, launchSpeed) : launchSpeed;
     if (fromPlayer) fromPlayer.hasBall = false; if (this.carrier) this.carrier.hasBall = false;
     this.carrier = null; this.target = point; this.intendedReceiver = intendedReceiver; this.vx = dx / d * cappedSpeed; this.vy = dy / d * cappedSpeed; this.speed = cappedSpeed;
+    this.z = state === 'lob_pass' ? 1 : 0; this.lobElapsed = 0; this.lobDuration = state === 'lob_pass' ? Math.max(0.75, d / Math.max(1, cappedSpeed) * 1.35) : 0;
     this.lastKicker = fromPlayer || null; this.lastTouch = fromPlayer || this.lastTouch; this.lastTouchTeam = fromPlayer?.team || this.lastTouchTeam; this.pickupBlockedUntil = performance.now() + 160; this.arrived = false; this.state = state; this.lastPassType = passType;
   }
-  setLoose() { if (this.carrier) this.carrier.hasBall = false; this.carrier = null; this.target = null; this.intendedReceiver = null; this.state = 'loose'; this.lastKicker = null; this.pickupBlockedUntil = 0; this.arrived = false; }
-  markGoal() { if (this.carrier) this.carrier.hasBall = false; this.carrier = null; this.target = null; this.vx = 0; this.vy = 0; this.speed = 0; this.state = 'goal'; this.arrived = true; }
-  markSaved() { this.vx = 0; this.vy = 0; this.speed = 0; this.state = 'saved'; this.arrived = true; }
+  setLoose() { if (this.carrier) this.carrier.hasBall = false; this.carrier = null; this.target = null; this.intendedReceiver = null; this.state = 'loose'; this.lastKicker = null; this.pickupBlockedUntil = 0; this.arrived = false; this.z = 0; this.lobElapsed = 0; this.lobDuration = 0; }
+  markGoal() { if (this.carrier) this.carrier.hasBall = false; this.carrier = null; this.target = null; this.vx = 0; this.vy = 0; this.speed = 0; this.z = 0; this.state = 'goal'; this.arrived = true; }
+  markSaved() { this.vx = 0; this.vy = 0; this.speed = 0; this.z = 0; this.state = 'saved'; this.arrived = true; }
   validatePosition(fallback = { x: 450, y: 750 }) { if (Number.isFinite(this.x) && Number.isFinite(this.y)) return; console.warn('Reset invalid ball position', { x:this.x,y:this.y,state:this.state }); this.x = fallback.x; this.y = fallback.y; this.vx=0; this.vy=0; this.speed=0; this.setLoose(); }
   validateState() {
     if (this.state === 'possessed' && this.carrier && !this.carrier.isStunned?.(performance.now())) return;
-    if ((this.state === 'pass' || this.state === 'shot') && (Math.hypot(this.vx, this.vy) > 1 || this.arrived)) return;
+    if ((this.state === 'pass' || this.state === 'lob_pass' || this.state === 'shot') && (Math.hypot(this.vx, this.vy) > 1 || this.arrived)) return;
     if ((this.state === 'loose' || this.state === 'goal' || this.state === 'saved' || this.state === 'throw_in' || this.state === 'goal_kick' || this.state === 'corner' || this.state === 'kickoff') && !this.carrier) return;
     if (this.state === 'possessed' && this.carrier?.isStunned?.(performance.now())) { this.setLoose(); return; }
     console.warn('Reset invalid ball state', { state:this.state, carrier:this.carrier }); this.state = this.carrier ? 'possessed' : 'loose';
@@ -66,19 +69,25 @@ export class Ball {
   frictionForState() {
     if (this.state === 'shot') return this.tuning.shotFriction;
     if (this.state === 'loose') return this.tuning.looseFriction;
-    return this.lastPassType === 'space' ? this.tuning.spacePassFriction : this.tuning.passFriction;
+    return this.lastPassType.includes('space') ? this.tuning.spacePassFriction : this.tuning.passFriction;
   }
   update(dt) {
     this.validateState();
-    if (this.carrier) { this.state='possessed'; this.x=this.carrier.x; this.y=this.carrier.y; this.vx=0; this.vy=0; this.speed=0; this.validatePosition(); return; }
+    if (this.carrier) { this.state='possessed'; this.x=this.carrier.x; this.y=this.carrier.y; this.vx=0; this.vy=0; this.speed=0; this.z=0; this.validatePosition(); return; }
     this.validatePosition();
     this.speed = Math.hypot(this.vx, this.vy);
-    if (this.speed <= this.tuning.finalStopSpeed) { this.vx=0; this.vy=0; this.speed=0; if (this.state === 'pass') this.state='loose'; return; }
+    if (this.speed <= this.tuning.finalStopSpeed) { this.vx=0; this.vy=0; this.speed=0; if (this.state === 'pass' || this.state === 'lob_pass') { this.state='loose'; this.z=0; } return; }
     this.x += this.vx * dt; this.y += this.vy * dt;
+    if (this.state === 'lob_pass') {
+      this.lobElapsed += dt;
+      const progress = Math.min(1, this.lobElapsed / Math.max(0.001, this.lobDuration));
+      this.z = Math.sin(progress * Math.PI) * 58;
+      if (progress >= 1) { this.z = 0; this.state = 'pass'; this.lastPassType = this.lastPassType.replace('-lob', ''); }
+    }
     let nextSpeed = this.speed - this.frictionForState() * dt;
     if (nextSpeed <= this.tuning.minStopSpeed) {
       nextSpeed = this.speed * Math.pow(0.08, dt);
-      if (this.state === 'pass') this.state='loose';
+      if (this.state === 'pass' || this.state === 'lob_pass') { this.state='loose'; this.z=0; }
     }
     if (nextSpeed <= this.tuning.finalStopSpeed) { this.vx=0; this.vy=0; this.speed=0; }
     else { const k = nextSpeed / this.speed; this.vx *= k; this.vy *= k; this.speed = nextSpeed; }

@@ -4,6 +4,7 @@ export class Input {
     this.dragging = false;
     this.didDrag = false;
     this.dragThreshold = 18;
+    this.longPressMs = 350;
     game.canvas.addEventListener('pointerdown', e => this.down(e));
     game.canvas.addEventListener('pointermove', e => this.move(e));
     game.canvas.addEventListener('pointerup', e => this.up(e));
@@ -13,7 +14,7 @@ export class Input {
   playerAt(p) { return this.game.players.find(pl => !pl.isStunned(this.game.nowMs) && Math.hypot(pl.x - p.x, pl.y - p.y) < pl.radius + 12); }
   down(e) {
     if (this.game.paused) return;
-    this.dragging = true; this.didDrag = false; this.start = this.pos(e); this.current = this.start;
+    this.dragging = true; this.didDrag = false; this.pointerDownAt = performance.now(); this.start = this.pos(e); this.current = this.start;
     const hit = this.playerAt(this.start);
     const carrier = this.game.humanBallCarrier();
     if (carrier) {
@@ -37,18 +38,18 @@ export class Input {
     if (this.game.paused || !this.dragging) return this.cancel();
     const p = this.pos(e);
     if (this.didDrag && this.dragPlayer) this.game.commandMoveFromDrag(this.dragPlayer, this.start, p);
-    else this.handleTap(p);
+    else this.handleTap(p, performance.now() - (this.pointerDownAt || 0) >= this.longPressMs);
     this.cancel();
   }
-  cancel() { this.dragging = false; this.didDrag = false; this.dragPlayer = null; this.start = null; this.current = null; this.game.preview = null; }
-  handleTap(p) {
+  cancel() { this.dragging = false; this.didDrag = false; this.dragPlayer = null; this.pointerDownAt = 0; this.start = null; this.current = null; this.game.preview = null; }
+  handleTap(p, lob = false) {
     const carrier = this.game.humanBallCarrier();
     const hit = this.playerAt(p);
     if (carrier) {
       this.game.select(carrier);
       if (this.game.isInOpponentGoalArea(p)) { this.game.shoot(); return; }
-      if (hit && hit.team === carrier.team && hit !== carrier) { this.game.passTo(hit); return; }
-      this.game.passTo(p);
+      if (hit && hit.team === carrier.team && hit !== carrier) { this.game.passTo(hit, { lob }); return; }
+      this.game.passTo(p, { lob });
       return;
     }
     if (hit && hit.team === this.game.humanTeam) this.game.select(hit);
