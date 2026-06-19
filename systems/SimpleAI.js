@@ -54,7 +54,7 @@ export class SimpleAI {
     const targets = new Map();
     const roleAssignments = new Map(mates.map((p, index) => [p, this.supportRoleFor(p, index)]));
     if (mates.length && ![...roleAssignments.values()].includes('forward runner')) roleAssignments.set(mates[mates.length - 1], 'forward runner');
-    if (mates.length > 1 && ![...roleAssignments.values()].includes('back support')) roleAssignments.set(mates[0], 'back support');
+    if (mates.length > 1 && ![...roleAssignments.values()].includes('safe support')) roleAssignments.set(mates[0], 'safe support');
     let bestScore = -Infinity;
     mates.forEach((p) => {
       const role = roleAssignments.get(p);
@@ -76,11 +76,11 @@ export class SimpleAI {
   }
 
   supportRoleFor(player, fallbackIndex) {
-    if (player.id.endsWith('1')) return 'back support';
+    if (player.id.endsWith('1')) return 'safe support';
     if (player.id.endsWith('2')) return 'side support';
     if (player.id.endsWith('3')) return 'wide option';
     if (player.id.endsWith('4')) return 'forward runner';
-    return ['forward runner', 'side support', 'back support', 'wide option'][fallbackIndex] || 'side support';
+    return ['forward runner', 'side support', 'safe support', 'wide option'][fallbackIndex] || 'side support';
   }
 
   supportCandidates(game, carrier, player, role, dir) {
@@ -97,7 +97,7 @@ export class SimpleAI {
       { x: wingX, y: carrier.y + dir * 170 },
       { x: carrier.x + side * 210, y: carrier.y + dir * 80 }
     ];
-    if (role === 'back support') return [
+    if (role === 'safe support') return [
       { x: carrier.x - side * 105, y: carrier.y - dir * 165 },
       { x: game.field.width / 2 + side * 125, y: carrier.y - dir * 125 },
       { x: player.homeX, y: carrier.y - dir * 190 }
@@ -118,7 +118,7 @@ export class SimpleAI {
     let score = nearestOpponent * 0.75 + progress * 0.42 + Math.min(angleWidth, 230) * 0.2;
     if (carrierDistance < 115) score -= 90;
     if (carrierDistance > 430) score -= 55;
-    if (role === 'back support' && progress < 0) score += 75;
+    if (role === 'safe support' && progress < 0) score += 75;
     if (role === 'wide option' && (point.x < 190 || point.x > game.field.width - 190)) score += 65;
     if (role === 'forward runner' && progress > 175) score += 80;
     for (const other of existingTargets.values()) {
@@ -148,7 +148,7 @@ export class SimpleAI {
     const carrier = game.ball.carrier;
     if (!carrier || carrier.team === game.humanTeam || carrier.role === 'goalkeeper' || carrier.isStunned(game.nowMs)) return;
     if (game.nowMs < carrier.aiNextDecisionAt || game.ball.state !== 'possessed' || game.paused) return;
-    carrier.aiNextDecisionAt = game.nowMs + 760;
+    carrier.aiNextDecisionAt = game.nowMs + 850;
     const goalY = game.field.height - 20;
     const distanceToGoal = goalY - carrier.y;
     const nearestOpponent = this.closestTo(game.humanTeam.players.filter(p => !p.isStunned(game.nowMs)), carrier);
