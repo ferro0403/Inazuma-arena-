@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Inazuma Arena DS Prototype</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="game-shell">
+    <header id="top-screen">
+      <div class="score-card">
+        <span id="home-name">Raimon</span>
+        <strong id="score">0 - 0</strong>
+        <span id="away-name">Alius</span>
+      </div>
+      <div id="timer">00:00</div>
+      <div id="flow-hint">Move → Pass → Duel → Advance → Shoot</div>
+    </header>
+
+    <main id="touch-screen">
+      <canvas id="game" width="960" height="540" aria-label="Touch soccer RPG match canvas"></canvas>
+      <section id="hud">
+        <div id="selected-panel">Selected: <strong id="selected-name">None</strong></div>
+        <canvas id="minimap" width="140" height="80" aria-label="Minimap"></canvas>
+        <button id="debug-toggle" type="button">DBG</button><div id="debug-tools"><button id="force-throw-left" type="button">TL</button><button id="force-throw-right" type="button">TR</button><button id="force-goal-kick" type="button">GK</button><button id="force-corner" type="button">CK</button></div><div id="debug-readout">players: 0<br>ball: 0,0<br>camera: 0,0<br>selected: None</div>
+      </section>
+    </main>
+  </div>
+
+  <div id="modal" class="hidden" role="dialog" aria-modal="true">
+    <div class="modal-card ds-panel">
+      <h2 id="modal-title">Event</h2>
+      <div id="modal-versus" class="versus-row"></div>
+      <p id="modal-copy"></p>
+      <div id="modal-options" class="option-grid"></div>
+      <button id="modal-continue" class="hidden">Continue</button>
+    </div>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
