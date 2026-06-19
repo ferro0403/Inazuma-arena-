@@ -1,6 +1,10 @@
 export class GoalkeeperSystem {
   constructor(ui) { this.ui = ui; }
   start(shooter, keeper, shotPower, done) {
+    if (!keeper || keeper.isStunned?.(performance.now())) {
+      done(true);
+      return;
+    }
     this.ui.choice('Goalkeeper Event', shooter, keeper, `${keeper.name} chooses a save.`, [
       { label: 'Save', power: keeper.stats.save }, { label: 'Technique Save', power: keeper.stats.technique + 12 }
     ], choice => {

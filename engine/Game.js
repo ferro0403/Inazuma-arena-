@@ -114,6 +114,13 @@ export class Game {
     return player.team.side === 'top' ? player.y < 285 : player.y > this.field.height - 285;
   }
 
+  canGoalkeeperSave(keeper) {
+    return !!keeper
+      && keeper.role === 'goalkeeper'
+      && !keeper.isStunned(this.nowMs)
+      && this.isGoalkeeperInOwnPenalty(keeper);
+  }
+
   select(player) {
     if (player?.isStunned(this.nowMs)) return;
     this.players.forEach(p => p.selected = false);
@@ -218,7 +225,7 @@ export class Game {
     this.shotSystem.start(shooter, keeper, goal => {
       this.paused = false;
       this.startShotTravel(shooter, keeper, goal);
-    });
+    }, this.canGoalkeeperSave(keeper));
   }
 
   startAIShot(shooter) {
@@ -229,13 +236,15 @@ export class Game {
     this.shotSystem.start(shooter, keeper, goal => {
       this.paused = false;
       this.startShotTravel(shooter, keeper, goal);
-    });
+    }, this.canGoalkeeperSave(keeper));
   }
 
   startShotTravel(shooter, keeper, goal) {
-    this.pendingShotOutcome = { goal, keeper, shooterTeam: shooter.team };
+    const keeperCanSave = this.canGoalkeeperSave(keeper);
+    const effectiveGoal = goal || !keeperCanSave;
+    this.pendingShotOutcome = { goal: effectiveGoal, keeper, shooterTeam: shooter.team, keeperCanSave };
     const attackingTop = shooter.team.side === 'bottom';
-    const target = goal
+    const target = effectiveGoal
       ? { x: this.field.width / 2, y: attackingTop ? 12 : this.field.height - 12 }
       : { x: keeper.x, y: keeper.y + (attackingTop ? 16 : -16) };
     this.ball.shootTo(this.clamp(target), shooter);
@@ -450,12 +459,17 @@ export class Game {
 
   resolveShotTravel() {
     if (this.ball.state !== 'shot' || !this.pendingShotOutcome) return;
-    const { goal, keeper, shooterTeam } = this.pendingShotOutcome;
+    const { goal, keeper, shooterTeam, keeperCanSave } = this.pendingShotOutcome;
+    const canStillSave = keeperCanSave && this.canGoalkeeperSave(keeper);
     const crossedGoal = goal && (shooterTeam.side === 'bottom' ? this.ball.y <= 18 : this.ball.y >= this.field.height - 18);
-    const reachedKeeper = !goal && Math.hypot(this.ball.x - keeper.x, this.ball.y - keeper.y) < 24;
+    const reachedKeeper = !goal && canStillSave && Math.hypot(this.ball.x - keeper.x, this.ball.y - keeper.y) < 24;
     if (!crossedGoal && !reachedKeeper) return;
     this.pendingShotOutcome = null;
     if (goal) {
+      this.triggerGoal(shooterTeam);
+      return;
+    }
+    if (!this.canGoalkeeperSave(keeper)) {
       this.triggerGoal(shooterTeam);
       return;
     }
