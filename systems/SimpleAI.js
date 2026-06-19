@@ -51,23 +51,81 @@ export class SimpleAI {
   supportTargets(game, team, carrier) {
     const dir = team.side === 'bottom' ? -1 : 1;
     const mates = team.players.filter(p => p !== carrier && p.role !== 'goalkeeper' && !p.isStunned(game.nowMs));
-    const roles = ['forward runner', 'side support', 'back support', 'wide option'];
     const targets = new Map();
-    mates.forEach((p, index) => {
-      const role = roles[index] || 'wide option';
+    const roleAssignments = new Map(mates.map((p, index) => [p, this.supportRoleFor(p, index)]));
+    if (mates.length && ![...roleAssignments.values()].includes('forward runner')) roleAssignments.set(mates[mates.length - 1], 'forward runner');
+    if (mates.length > 1 && ![...roleAssignments.values()].includes('back support')) roleAssignments.set(mates[0], 'back support');
+    let bestScore = -Infinity;
+    mates.forEach((p) => {
+      const role = roleAssignments.get(p);
       p.supportRole = role;
-      const side = p.homeX < game.field.width / 2 ? -1 : 1;
-      let target = { x: carrier.x + side * 150, y: carrier.y + dir * 120 };
-      if (role === 'forward runner') target = { x: carrier.x + side * 85, y: carrier.y + dir * 250 };
-      if (role === 'back support') target = { x: carrier.x - side * 95, y: carrier.y - dir * 165 };
-      if (role === 'wide option') target = { x: side < 0 ? 150 : game.field.width - 150, y: carrier.y + dir * 70 };
-      if (Math.hypot(target.x - carrier.x, target.y - carrier.y) < 120) target.y += dir * 80;
-      const nearestOpponent = this.closestTo([...game.teams.find(t => t !== team).players], target);
-      if (nearestOpponent && Math.hypot(nearestOpponent.x - target.x, nearestOpponent.y - target.y) < 105) target.x += side * 70;
-      for (const other of targets.values()) if (Math.hypot(other.x - target.x, other.y - target.y) < 90) target.x += side * 55;
-      targets.set(p, game.clamp(target));
+      const candidates = this.supportCandidates(game, carrier, p, role, dir);
+      let best = candidates[0];
+      let bestCandidateScore = -Infinity;
+      for (const candidate of candidates) {
+        const clamped = game.clamp(candidate);
+        const score = this.supportScore(game, carrier, p, clamped, role, targets);
+        if (score > bestCandidateScore) { bestCandidateScore = score; best = clamped; }
+      }
+      p.supportScore = Math.round(bestCandidateScore);
+      bestScore = Math.max(bestScore, bestCandidateScore);
+      targets.set(p, best);
     });
+    if (Number.isFinite(bestScore)) game.lastPassLaneScore = Math.round(bestScore);
     return targets;
+  }
+
+  supportRoleFor(player, fallbackIndex) {
+    if (player.id.endsWith('1')) return 'back support';
+    if (player.id.endsWith('2')) return 'side support';
+    if (player.id.endsWith('3')) return 'wide option';
+    if (player.id.endsWith('4')) return 'forward runner';
+    return ['forward runner', 'side support', 'back support', 'wide option'][fallbackIndex] || 'side support';
+  }
+
+  supportCandidates(game, carrier, player, role, dir) {
+    const side = player.homeX < game.field.width / 2 ? -1 : 1;
+    const wave = Math.sin(game.time * 1.8 + player.homeX * 0.01) * 28;
+    const wingX = side < 0 ? 135 : game.field.width - 135;
+    if (role === 'forward runner') return [
+      { x: carrier.x + side * 120, y: carrier.y + dir * 285 },
+      { x: carrier.x - side * 80, y: carrier.y + dir * 245 },
+      { x: wingX, y: carrier.y + dir * 220 }
+    ];
+    if (role === 'wide option') return [
+      { x: wingX, y: carrier.y + dir * 95 + wave },
+      { x: wingX, y: carrier.y + dir * 170 },
+      { x: carrier.x + side * 210, y: carrier.y + dir * 80 }
+    ];
+    if (role === 'back support') return [
+      { x: carrier.x - side * 105, y: carrier.y - dir * 165 },
+      { x: game.field.width / 2 + side * 125, y: carrier.y - dir * 125 },
+      { x: player.homeX, y: carrier.y - dir * 190 }
+    ];
+    return [
+      { x: carrier.x + side * 170, y: carrier.y + dir * 45 + wave },
+      { x: carrier.x - side * 155, y: carrier.y + dir * 80 },
+      { x: game.field.width / 2 + side * 180, y: carrier.y + dir * 125 }
+    ];
+  }
+
+  supportScore(game, carrier, player, point, role, existingTargets) {
+    const opponents = game.teams.find(t => t !== carrier.team).players.filter(p => !p.isStunned(game.nowMs));
+    const nearestOpponent = this.nearestDistance(opponents, point);
+    const progress = carrier.team.side === 'top' ? point.y - carrier.y : carrier.y - point.y;
+    const carrierDistance = Math.hypot(point.x - carrier.x, point.y - carrier.y);
+    const angleWidth = Math.abs(point.x - carrier.x);
+    let score = nearestOpponent * 0.75 + progress * 0.42 + Math.min(angleWidth, 230) * 0.2;
+    if (carrierDistance < 115) score -= 90;
+    if (carrierDistance > 430) score -= 55;
+    if (role === 'back support' && progress < 0) score += 75;
+    if (role === 'wide option' && (point.x < 190 || point.x > game.field.width - 190)) score += 65;
+    if (role === 'forward runner' && progress > 175) score += 80;
+    for (const other of existingTargets.values()) {
+      const d = Math.hypot(other.x - point.x, other.y - point.y);
+      if (d < 105) score -= (105 - d) * 1.3;
+    }
+    return score;
   }
 
   defensiveTarget(game, team, p, order) {
