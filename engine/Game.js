@@ -151,11 +151,56 @@ export class Game {
     const type = target?.team === player.team ? 'teammate' : 'space';
     const intendedReceiver = type === 'teammate' ? target : null;
     this.ball.passTo(point, player, type, intendedReceiver, options.lob);
+    if (type === 'space' && player.team === this.humanTeam) this.assignSpacePassReceiver(player, options.lob);
     this.tapMarker = { x: point.x, y: point.y, until: this.nowMs + 450, lob: !!options.lob };
     if (target?.team === player.team && !target.isStunned(this.nowMs)) {
       const lead = target.team.side === 'top' ? 35 : -35;
       target.setDestination(this.clamp({ x: point.x, y: point.y + lead }));
     }
+  }
+
+  assignSpacePassReceiver(passer, lob = false) {
+    const predicted = this.predictReceivePoint(lob);
+    this.ball.predictedReceivePoint = predicted;
+    if (lob) this.ball.landingPoint = predicted;
+    const teammates = passer.team.players.filter(p => p !== passer && p.role !== 'goalkeeper' && !p.isStunned(this.nowMs));
+    const receiver = teammates
+      .map(p => ({ player: p, score: this.receiverScore(p, predicted) }))
+      .sort((a, b) => a.score - b.score)[0]?.player;
+    if (!receiver) return;
+    this.ball.intendedReceiver = receiver;
+    receiver.supportRole = lob ? 'lob receiver' : 'space receiver';
+    receiver.setDestination(this.clamp(predicted));
+  }
+
+  receiverScore(player, point) {
+    const ballDistance = Math.hypot(player.x - this.ball.x, player.y - this.ball.y);
+    const receiveDistance = Math.hypot(player.x - point.x, player.y - point.y);
+    return receiveDistance + ballDistance * 0.18;
+  }
+
+  predictReceivePoint(lob = false) {
+    const friction = lob ? this.ball.tuning.lobFriction : this.ball.frictionForState();
+    const maxTime = lob ? this.ball.lobDuration || 1 : 1.25;
+    let x = this.ball.x, y = this.ball.y, vx = this.ball.vx, vy = this.ball.vy, speed = Math.hypot(vx, vy);
+    for (let t = 0; t < maxTime && speed > this.ball.tuning.minStopSpeed; t += 0.05) {
+      x += vx * 0.05; y += vy * 0.05;
+      const nextSpeed = Math.max(0, speed - friction * 0.05);
+      if (nextSpeed <= 0) break;
+      const k = nextSpeed / speed;
+      vx *= k; vy *= k; speed = nextSpeed;
+    }
+    return this.clamp({ x, y });
+  }
+
+  updatePassReceiverChase() {
+    const receiver = this.ball.intendedReceiver;
+    if (!receiver || receiver.isStunned(this.nowMs) || this.ball.carrier || !['pass', 'lob_pass'].includes(this.ball.state)) return;
+    const predicted = this.ball.state === 'lob_pass' ? (this.ball.landingPoint || this.predictReceivePoint(true)) : this.predictReceivePoint(false);
+    this.ball.predictedReceivePoint = predicted;
+    if (this.ball.state === 'lob_pass') this.ball.landingPoint = predicted;
+    receiver.supportRole = this.ball.state === 'lob_pass' ? 'lob receiver' : 'space receiver';
+    receiver.setDestination(this.clamp(predicted));
   }
 
   shoot() {
@@ -272,6 +317,7 @@ export class Game {
     this.ai.update(this, dt);
     this.players.forEach(p => p.update(dt));
     this.ball.update(dt);
+    this.updatePassReceiverChase();
     this.handleOutOfBounds();
     this.validateWorldState('update');
     this.resolveShotTravel();
@@ -447,6 +493,7 @@ export class Game {
     const keeper = this.players.find(pl => pl.role === 'goalkeeper' && eligible(pl) && Math.hypot(pl.x - this.ball.x, pl.y - this.ball.y) < pickupRadius(pl));
     const receiver = this.ball.intendedReceiver;
     let p = keeper || null;
+    if (receiver && this.ball.predictedReceivePoint && !receiver.isStunned(this.nowMs)) receiver.setDestination(this.clamp(this.ball.predictedReceivePoint));
     if (!p && receiver && eligible(receiver) && Math.hypot(receiver.x - this.ball.x, receiver.y - this.ball.y) < receiver.radius + 26) p = receiver;
     if (!p) p = this.players.find(pl => eligible(pl) && Math.hypot(pl.x - this.ball.x, pl.y - this.ball.y) < pickupRadius(pl));
     if (p) { this.players.forEach(x => x.hasBall = false); this.ball.attach(p); if (p.team === this.humanTeam) this.select(p); }

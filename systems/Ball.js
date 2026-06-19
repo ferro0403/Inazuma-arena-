@@ -28,12 +28,12 @@ export class Ball {
     this.carrier = null; this.target = null; this.state = 'loose';
     this.lastKicker = null; this.pickupBlockedUntil = 0; this.arrived = false;
     this.lastPassType = 'none';
-    this.lastTouch = null; this.lastTouchTeam = null; this.intendedReceiver = null;
+    this.lastTouch = null; this.lastTouchTeam = null; this.intendedReceiver = null; this.predictedReceivePoint = null; this.landingPoint = null;
   }
   attach(player) {
     if (!player || !Number.isFinite(player.x) || !Number.isFinite(player.y) || player.isStunned?.(performance.now())) { console.warn('Cannot attach ball', player); this.setLoose(); return; }
     if (this.carrier) this.carrier.hasBall = false;
-    this.carrier = player; player.hasBall = true; this.lastTouch = player; this.lastTouchTeam = player.team; this.target = null; this.vx = 0; this.vy = 0; this.speed = 0;
+    this.carrier = player; player.hasBall = true; this.lastTouch = player; this.lastTouchTeam = player.team; this.target = null; this.predictedReceivePoint = null; this.landingPoint = null; this.vx = 0; this.vy = 0; this.speed = 0;
     this.lastKicker = null; this.pickupBlockedUntil = 0; this.arrived = false; this.intendedReceiver = null; this.z = 0; this.lobElapsed = 0; this.lobDuration = 0; this.lobLaunchSpeed = 0; player.receivedAt = performance.now(); this.state = 'possessed'; this.x = player.x; this.y = player.y;
   }
   passTo(target, fromPlayer, passType = 'space', intendedReceiver = null, lob = false) { this.travelTo(target, fromPlayer, lob ? 'lob_pass' : 'pass', this.speedForPass(target, passType, lob), lob ? `${passType}-lob` : passType, intendedReceiver); }
@@ -53,11 +53,11 @@ export class Ball {
     if (!Number.isFinite(d) || d <= 0.0001) { this.setLoose(); return; }
     const cappedSpeed = state === 'shot' ? Math.min(this.tuning.maxShotSpeed, launchSpeed) : launchSpeed;
     if (fromPlayer) fromPlayer.hasBall = false; if (this.carrier) this.carrier.hasBall = false;
-    this.carrier = null; this.target = point; this.intendedReceiver = intendedReceiver; this.vx = dx / d * cappedSpeed; this.vy = dy / d * cappedSpeed; this.speed = cappedSpeed;
+    this.carrier = null; this.target = point; this.intendedReceiver = intendedReceiver; this.predictedReceivePoint = point; this.landingPoint = state === 'lob_pass' ? point : null; this.vx = dx / d * cappedSpeed; this.vy = dy / d * cappedSpeed; this.speed = cappedSpeed;
     this.z = state === 'lob_pass' ? 1 : 0; this.lobElapsed = 0; this.lobDuration = state === 'lob_pass' ? Math.max(0.75, d / Math.max(1, cappedSpeed) * 1.35) : 0; this.lobLaunchSpeed = state === 'lob_pass' ? cappedSpeed : 0;
     this.lastKicker = fromPlayer || null; this.lastTouch = fromPlayer || this.lastTouch; this.lastTouchTeam = fromPlayer?.team || this.lastTouchTeam; this.pickupBlockedUntil = performance.now() + 160; this.arrived = false; this.state = state; this.lastPassType = passType;
   }
-  setLoose() { if (this.carrier) this.carrier.hasBall = false; this.carrier = null; this.target = null; this.intendedReceiver = null; this.state = 'loose'; this.lastKicker = null; this.pickupBlockedUntil = 0; this.arrived = false; this.z = 0; this.lobElapsed = 0; this.lobDuration = 0; this.lobLaunchSpeed = 0; }
+  setLoose() { if (this.carrier) this.carrier.hasBall = false; this.carrier = null; this.target = null; this.intendedReceiver = null; this.predictedReceivePoint = null; this.landingPoint = null; this.state = 'loose'; this.lastKicker = null; this.pickupBlockedUntil = 0; this.arrived = false; this.z = 0; this.lobElapsed = 0; this.lobDuration = 0; this.lobLaunchSpeed = 0; }
   markGoal() { if (this.carrier) this.carrier.hasBall = false; this.carrier = null; this.target = null; this.vx = 0; this.vy = 0; this.speed = 0; this.z = 0; this.state = 'goal'; this.arrived = true; }
   markSaved() { this.vx = 0; this.vy = 0; this.speed = 0; this.z = 0; this.state = 'saved'; this.arrived = true; }
   validatePosition(fallback = { x: 450, y: 750 }) { if (Number.isFinite(this.x) && Number.isFinite(this.y)) return; console.warn('Reset invalid ball position', { x:this.x,y:this.y,state:this.state }); this.x = fallback.x; this.y = fallback.y; this.vx=0; this.vy=0; this.speed=0; this.setLoose(); }

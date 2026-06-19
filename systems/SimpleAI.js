@@ -3,7 +3,13 @@ export class SimpleAI {
     this.updateOpponentCarrier(game);
     game.primaryPresser = null;
     const chasers = new Set();
-    if (game.ball.state === 'loose' || game.ball.state === 'pass') {
+    if ((game.ball.state === 'pass' || game.ball.state === 'lob_pass') && game.ball.intendedReceiver) {
+      chasers.add(game.ball.intendedReceiver);
+      const opponent = game.players
+        .filter(p => p.team !== game.ball.intendedReceiver.team && p.role !== 'goalkeeper' && !p.isStunned(game.nowMs))
+        .sort((a, b) => Math.hypot(a.x - game.ball.x, a.y - game.ball.y) - Math.hypot(b.x - game.ball.x, b.y - game.ball.y))[0];
+      if (opponent) chasers.add(opponent);
+    } else if (game.ball.state === 'loose' || game.ball.state === 'pass') {
       for (const team of game.teams) {
         team.players
           .filter(p => p.role !== 'goalkeeper' && !p.isStunned(game.nowMs))
@@ -24,7 +30,7 @@ export class SimpleAI {
       const supportTargets = attacking && carrier ? this.supportTargets(game, team, carrier) : new Map();
       for (const p of team.players) {
         if (p.selected || p.hasBall || p.isStunned(game.nowMs)) continue;
-        if (chasers.has(p)) { p.supportRole = 'loose chase'; p.setDestination(game.clamp({ x: game.ball.x, y: game.ball.y })); continue; }
+        if (chasers.has(p)) { const chasePoint = p === game.ball.intendedReceiver && game.ball.predictedReceivePoint ? game.ball.predictedReceivePoint : game.ball; p.supportRole = p === game.ball.intendedReceiver ? 'intended receiver' : 'loose chase'; p.setDestination(game.clamp(chasePoint)); continue; }
         if (p.role === 'goalkeeper') {
           const collectible = game.ball.state === 'loose' || game.ball.state === 'pass' || game.ball.state === 'saved' || (game.ball.state === 'shot' && game.ball.speed < 250);
           const homeY = team.side === 'top' ? 88 : 1412;
