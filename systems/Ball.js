@@ -34,7 +34,7 @@ export class Ball {
     if (!player || !Number.isFinite(player.x) || !Number.isFinite(player.y) || player.isStunned?.(performance.now())) { console.warn('Cannot attach ball', player); this.setLoose(); return; }
     if (this.carrier) this.carrier.hasBall = false;
     this.carrier = player; player.hasBall = true; this.lastTouch = player; this.lastTouchTeam = player.team; this.target = null; this.predictedReceivePoint = null; this.landingPoint = null; this.vx = 0; this.vy = 0; this.speed = 0;
-    this.lastKicker = null; this.pickupBlockedUntil = 0; this.arrived = false; this.intendedReceiver = null; this.z = 0; this.lobElapsed = 0; this.lobDuration = 0; this.lobLaunchSpeed = 0; player.receivedAt = performance.now(); player.aiNextDecisionAt = performance.now() + 280; player.movementCommandActive = false; player.movementTarget = null; this.state = 'possessed'; this.x = player.x; this.y = player.y;
+    this.lastKicker = null; this.pickupBlockedUntil = 0; this.arrived = false; this.intendedReceiver = null; this.z = 0; this.lobElapsed = 0; this.lobDuration = 0; this.lobLaunchSpeed = 0; player.receivedAt = performance.now(); player.aiNextDecisionAt = performance.now() + 280; player.clearManualRun(); this.state = 'possessed'; this.x = player.x; this.y = player.y;
   }
   passTo(target, fromPlayer, passType = 'space', intendedReceiver = null, lob = false) { this.travelTo(target, fromPlayer, lob ? 'lob_pass' : 'pass', this.speedForPass(target, passType, lob), lob ? `${passType}-lob` : passType, intendedReceiver); }
   shootTo(target, fromPlayer) { this.travelTo(target, fromPlayer, 'shot', this.tuning.shotSpeed, 'shot', null); }

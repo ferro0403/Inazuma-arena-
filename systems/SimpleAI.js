@@ -29,8 +29,8 @@ export class SimpleAI {
 
       const supportTargets = attacking && carrier ? this.supportTargets(game, team, carrier) : new Map();
       for (const p of team.players) {
-        if (p.selected || p.hasBall || p.isStunned(game.nowMs) || p.movementCommandActive) continue;
-        if (chasers.has(p)) { const chasePoint = p === game.ball.intendedReceiver && game.ball.predictedReceivePoint ? game.ball.predictedReceivePoint : game.ball; p.supportRole = p === game.ball.intendedReceiver ? 'intended receiver' : 'loose chase'; p.setDestination(game.clamp(chasePoint)); continue; }
+        if (p.selected || p.hasBall || p.isStunned(game.nowMs) || p.manualRunActive) continue;
+        if (chasers.has(p)) { const chasePoint = p === game.ball.intendedReceiver && game.ball.predictedReceivePoint ? game.ball.predictedReceivePoint : game.ball; p.supportRole = p === game.ball.intendedReceiver ? 'intended receiver' : 'loose chase'; p.setDestination(game.clamp(chasePoint), undefined, false, 'ball_recovery'); continue; }
         if (p.role === 'goalkeeper') {
           const homeY = team.side === 'top' ? 88 : 1412;
           const carrierThreat = game.ball.carrier && game.ball.carrier.team !== team && game.ball.carrier.role !== 'goalkeeper';
@@ -41,7 +41,7 @@ export class SimpleAI {
           const collectible = game.ball.state === 'loose' || game.ball.state === 'pass' || game.ball.state === 'saved' || (game.ball.state === 'shot' && game.ball.speed < 250);
           const inKeeperZone = collectible && Math.abs(game.ball.y - homeY) < 185 && Math.hypot(p.x - game.ball.x, p.y - game.ball.y) < game.goalkeeperCollectionRadius + 78;
           p.supportRole = rushCarrier ? 'keeper rush' : (inKeeperZone ? 'keeper collect' : 'keeper home');
-          p.setDestination(game.clamp(rushCarrier ? { x: game.ball.carrier.x, y: game.ball.carrier.y } : (inKeeperZone ? { x: game.ball.x, y: game.ball.y } : { x: 450, y: homeY })));
+          p.setDestination(game.clamp(rushCarrier ? { x: game.ball.carrier.x, y: game.ball.carrier.y } : (inKeeperZone ? { x: game.ball.x, y: game.ball.y } : { x: 450, y: homeY })), undefined, false, 'defensive_ai');
           continue;
         }
         let target;
@@ -54,7 +54,7 @@ export class SimpleAI {
           const dir = team.side === 'bottom' ? -1 : 1;
           target = { x: p.homeX, y: p.homeY + 35 * dir };
         }
-        p.setDestination(game.clamp(target));
+        p.setDestination(game.clamp(target), undefined, false, attacking ? 'support_ai' : 'defensive_ai');
       }
     }
   }
