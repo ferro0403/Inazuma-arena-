@@ -21,6 +21,7 @@ export class Game {
     this.overlay = null;
     this.pendingShotOutcome = null;
     this.goalResetAt = 0;
+    this.goalSequenceActive = false;
     this.pendingDistributionAt = 0;
     this.aiDecision = 'idle';
     this.lastShotSource = 'none';
@@ -217,29 +218,43 @@ export class Game {
     receiver.setDestination(this.clamp(predicted));
   }
 
+  eventBlockedByGoal() {
+    return this.goalSequenceActive || this.matchState === 'goal' || this.ball.goalCounted;
+  }
+
+  cancelAllEvents() {
+    this.shotSystem?.cancel?.();
+    this.gkSystem?.cancel?.();
+    this.duelSystem?.cancel?.();
+    this.ui?.closeAll?.();
+  }
+
   shoot() {
-    if (!this.selected || this.selected.isStunned(this.nowMs)) return;
+    if (this.eventBlockedByGoal() || !this.selected || this.selected.isStunned(this.nowMs)) return;
     const shooter = this.selected, keeper = this.teams[1].players[0];
     this.paused = true;
     this.lastShotSource = 'user';
     this.shotSystem.start(shooter, keeper, goal => {
+      if (this.eventBlockedByGoal()) return;
       this.paused = false;
       this.startShotTravel(shooter, keeper, goal);
     }, this.canGoalkeeperSave(keeper));
   }
 
   startAIShot(shooter) {
-    if (!shooter || !shooter.hasBall || this.paused) return;
+    if (this.eventBlockedByGoal() || !shooter || !shooter.hasBall || this.paused) return;
     const keeper = this.humanTeam.players[0];
     this.lastShotSource = 'ai';
     this.paused = true;
     this.shotSystem.start(shooter, keeper, goal => {
+      if (this.eventBlockedByGoal()) return;
       this.paused = false;
       this.startShotTravel(shooter, keeper, goal);
     }, this.canGoalkeeperSave(keeper));
   }
 
   startShotTravel(shooter, keeper, goal) {
+    if (this.eventBlockedByGoal()) return;
     const keeperCanSave = this.canGoalkeeperSave(keeper);
     const effectiveGoal = goal || !keeperCanSave;
     this.pendingShotOutcome = { goal: effectiveGoal, keeper, shooterTeam: shooter.team, keeperCanSave };
@@ -370,13 +385,12 @@ export class Game {
     }
     if (this.goalResetAt && this.nowMs >= this.goalResetAt) {
       this.goalResetAt = 0;
-      this.paused = false;
-      this.resetAfterShot(true, this.lastScoringTeam || this.teams[0]);
+      this.resetAfterGoal(this.lastScoringTeam || this.teams[0]);
     }
   }
 
   handleOutOfBounds() {
-    if (this.matchState === 'restart' || this.pendingRestart || this.ball.state === 'goal') return;
+    if (this.goalSequenceActive || this.matchState === 'restart' || this.pendingRestart || this.ball.state === 'goal') return;
     const carrier = this.ball.carrier;
     const checkX = carrier ? carrier.x : this.ball.x;
     const checkY = carrier ? carrier.y : this.ball.y;
@@ -384,7 +398,7 @@ export class Game {
     const insideGoalMouth = checkX >= 360 && checkX <= 540;
     this.carrierInsideGoalMouth = !!carrier && insideGoalMouth;
     this.carrierCrossedGoalLine = !!carrier && insideGoalMouth && ((carrier.team.side === 'bottom' && checkY <= 20) || (carrier.team.side === 'top' && checkY >= this.field.height - 20));
-    if (this.carrierCrossedGoalLine) { this.triggerGoal(carrier.team, true); return; }
+    if (this.carrierCrossedGoalLine) { this.handleGoalScored(carrier.team, 'carrier-crossed-line'); return; }
     const crossedSide = checkX < 0 || checkX > this.field.width;
     const crossedTop = checkY < 0;
     const crossedBottom = checkY > this.field.height;
@@ -401,7 +415,7 @@ export class Game {
     }
     const goalLineTeam = crossedTop ? this.teams.find(t => t.side === 'top') : this.teams.find(t => t.side === 'bottom');
     const attackingTeam = this.teams.find(t => t !== goalLineTeam);
-    if (insideGoalMouth) { this.triggerGoal(attackingTeam, false); return; }
+    if (insideGoalMouth) { this.handleGoalScored(attackingTeam, 'ball-crossed-line'); return; }
     if (lastTeam === attackingTeam) {
       this.prepareRestart('goal_kick', goalLineTeam, { x: this.field.width / 2, y: crossedTop ? 95 : this.field.height - 95 });
     } else {
@@ -409,15 +423,39 @@ export class Game {
     }
   }
 
-  triggerGoal(scoringTeam, byCarrier = false) {
-    this.goalTriggeredByCarrier = byCarrier;
+  handleGoalScored(scoringTeam, reason = 'goal') {
+    if (this.goalSequenceActive || this.ball.goalCounted || this.matchState === 'goal') return;
+    this.goalSequenceActive = true;
+    this.goalTriggeredByCarrier = reason === 'carrier-crossed-line';
     this.matchState = 'goal';
     this.paused = true;
+    this.pendingShotOutcome = null;
+    this.pendingRestart = null;
+    this.restartAt = 0;
+    this.pendingDistributionAt = 0;
+    this.cancelAllEvents();
+    if (this.ball.carrier) this.ball.carrier.hasBall = false;
+    this.ball.carrier = null;
+    this.ball.vx = 0;
+    this.ball.vy = 0;
+    this.ball.speed = 0;
+    this.ball.goalCounted = true;
     this.ball.markGoal();
     scoringTeam.score++;
     this.lastScoringTeam = scoringTeam;
     this.overlay = { text: 'GOAL!', until: this.nowMs + 1000 };
     this.goalResetAt = this.nowMs + 1000;
+    this.aiDecision = `GOAL: ${scoringTeam.name} (${reason})`;
+  }
+
+  resetAfterGoal(scoringTeam = this.teams[0]) {
+    this.cancelAllEvents();
+    this.goalSequenceActive = false;
+    this.ball.goalCounted = false;
+    this.paused = false;
+    this.resetAfterShot(true, scoringTeam);
+    this.matchState = 'play';
+    this.ball.goalCounted = false;
   }
 
   prepareRestart(type, team, point) {
@@ -458,7 +496,7 @@ export class Game {
   }
 
   resolveShotTravel() {
-    if (this.ball.state !== 'shot' || !this.pendingShotOutcome) return;
+    if (this.goalSequenceActive || this.ball.state !== 'shot' || !this.pendingShotOutcome) return;
     const { goal, keeper, shooterTeam, keeperCanSave } = this.pendingShotOutcome;
     const canStillSave = keeperCanSave && this.canGoalkeeperSave(keeper);
     const crossedGoal = goal && (shooterTeam.side === 'bottom' ? this.ball.y <= 18 : this.ball.y >= this.field.height - 18);
@@ -466,11 +504,11 @@ export class Game {
     if (!crossedGoal && !reachedKeeper) return;
     this.pendingShotOutcome = null;
     if (goal) {
-      this.triggerGoal(shooterTeam);
+      this.handleGoalScored(shooterTeam, 'shot-crossed-line');
       return;
     }
     if (!this.canGoalkeeperSave(keeper)) {
-      this.triggerGoal(shooterTeam);
+      this.handleGoalScored(shooterTeam, 'shot-crossed-line');
       return;
     }
     this.ball.markSaved();
@@ -492,6 +530,7 @@ export class Game {
   }
 
   resolveGoalkeeperCollection() {
+    if (this.goalSequenceActive) return;
     const carrier = this.ball.carrier;
     this.goalkeeperRushActive = false;
     this.attackerInKeeperDangerZone = false;
@@ -531,6 +570,7 @@ export class Game {
   }
 
   checkDuel() {
+    if (this.eventBlockedByGoal()) return;
     const carrier = this.ball.carrier;
     if (!carrier || (carrier.role === 'goalkeeper' && this.isGoalkeeperInOwnPenalty(carrier)) || carrier.isStunned(this.nowMs) || this.nowMs < this.duelLockedUntil || this.nowMs < carrier.duelCooldownUntil) return;
     const foe = this.primaryPresser || this.players.find(p => p.team !== carrier.team && (p.role === 'field' || (p.role === 'goalkeeper' && !this.isGoalkeeperInOwnPenalty(p))) && !p.isStunned(this.nowMs));
@@ -542,7 +582,10 @@ export class Game {
     this.paused = true;
     carrier.destination = null; carrier.clearManualRun();
     foe.destination = null; foe.clearManualRun();
-    this.duelSystem.start(carrier, foe, ({ winner, loser }) => this.resolveDuel(carrier, foe, winner, loser));
+    this.duelSystem.start(carrier, foe, ({ winner, loser }) => {
+      if (this.eventBlockedByGoal()) return;
+      this.resolveDuel(carrier, foe, winner, loser);
+    });
   }
 
   resolveDuel(attacker, defender, winner, loser) {

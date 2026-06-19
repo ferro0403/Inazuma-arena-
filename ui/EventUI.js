@@ -21,4 +21,11 @@ export class EventUI {
     this.copy.textContent = text; this.options.innerHTML = ''; this.continue.classList.remove('hidden');
     this.continue.onclick = () => { this.activeState = 'none'; this.modal.classList.add('hidden'); cb(); };
   }
+  closeAll() {
+    this.activeState = 'none';
+    this.modal.classList.add('hidden');
+    this.options.innerHTML = '';
+    this.continue.classList.add('hidden');
+    this.continue.onclick = null;
+  }
 }
