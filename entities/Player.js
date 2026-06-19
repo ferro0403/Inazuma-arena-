@@ -3,7 +3,7 @@ export class Player {
     Object.assign(this, { id, name, team, role, x, y, homeX, homeY, color });
     this.kit = kit || { primary: color, secondary: '#ffffff', keeper: '#ffffff' };
     this.radius = role === 'goalkeeper' ? 19 : 17;
-    this.speed = role === 'goalkeeper' ? 93 : 128;
+    this.speed = role === 'goalkeeper' ? 89 : 122;
     this.destination = null;
     this.hasBall = false;
     this.selected = false;

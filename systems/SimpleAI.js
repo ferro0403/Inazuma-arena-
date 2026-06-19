@@ -115,9 +115,10 @@ export class SimpleAI {
     const progress = carrier.team.side === 'top' ? point.y - carrier.y : carrier.y - point.y;
     const carrierDistance = Math.hypot(point.x - carrier.x, point.y - carrier.y);
     const angleWidth = Math.abs(point.x - carrier.x);
-    let score = nearestOpponent * 0.75 + progress * 0.42 + Math.min(angleWidth, 230) * 0.2;
-    if (carrierDistance < 115) score -= 90;
-    if (carrierDistance > 430) score -= 55;
+    const laneBlock = this.passLaneBlockScore(opponents, carrier, point);
+    let score = nearestOpponent * 0.95 + Math.min(angleWidth, 230) * 0.28 + progress * 0.34 - laneBlock;
+    if (carrierDistance < 130) score -= 110;
+    if (carrierDistance > 455) score -= 65;
     if (role === 'safe support' && progress < 0) score += 75;
     if (role === 'wide option' && (point.x < 190 || point.x > game.field.width - 190)) score += 65;
     if (role === 'forward runner' && progress > 175) score += 80;
@@ -136,12 +137,18 @@ export class SimpleAI {
       return { x: carrier.x, y: carrier.y + attackDir * 62 };
     }
     if (p === order[1]) {
-      p.supportRole = 'cover';
+      p.supportRole = 'cover lane';
       const side = p.x < carrier.x ? -1 : 1;
-      return { x: carrier.x + side * 105, y: carrier.y + attackDir * 110 };
+      return { x: carrier.x + side * 115, y: carrier.y + attackDir * 125 };
     }
-    p.supportRole = 'defensive zone';
-    return { x: p.homeX + (game.ball.x - p.homeX) * 0.18, y: p.homeY + (game.ball.y - p.homeY) * 0.18 };
+    const threats = carrier.team.players
+      .filter(t => t !== carrier && t.role !== 'goalkeeper' && !t.isStunned(game.nowMs))
+      .sort((a, b) => (b.y * (carrier.team.side === 'top' ? 1 : -1)) - (a.y * (carrier.team.side === 'top' ? 1 : -1)));
+    const threat = threats.find(t => Math.abs(t.x - p.homeX) < 260) || threats[0];
+    p.supportRole = threat ? `mark ${threat.name}` : 'defensive zone';
+    const zone = { x: p.homeX + (game.ball.x - p.homeX) * 0.12, y: p.homeY + (game.ball.y - p.homeY) * 0.14 };
+    if (!threat) return zone;
+    return { x: zone.x * 0.62 + (threat.x + (450 - threat.x) * 0.25) * 0.38, y: zone.y * 0.66 + (threat.y + attackDir * 80) * 0.34 };
   }
 
   updateOpponentCarrier(game) {
@@ -192,6 +199,18 @@ export class SimpleAI {
     const spacing = Math.hypot(teammate.x - carrier.x, teammate.y - carrier.y);
     const spacingBonus = spacing > 115 ? 40 : -60;
     return nearestOpponent * 0.62 + progress * 0.85 - lateral * 0.1 + spacingBonus;
+  }
+
+
+  passLaneBlockScore(opponents, from, to) {
+    const dx = to.x - from.x, dy = to.y - from.y;
+    const lengthSq = Math.max(1, dx * dx + dy * dy);
+    return opponents.reduce((penalty, opponent) => {
+      const t = Math.max(0, Math.min(1, ((opponent.x - from.x) * dx + (opponent.y - from.y) * dy) / lengthSq));
+      const px = from.x + dx * t, py = from.y + dy * t;
+      const distance = Math.hypot(opponent.x - px, opponent.y - py);
+      return distance < 90 ? penalty + (90 - distance) * 1.4 : penalty;
+    }, 0);
   }
 
   closestTo(players, target) { return players.sort((a, b) => Math.hypot(a.x-target.x,a.y-target.y) - Math.hypot(b.x-target.x,b.y-target.y))[0]; }
