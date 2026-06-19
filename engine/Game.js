@@ -109,6 +109,11 @@ export class Game {
     return this.ball.carrier?.team === this.humanTeam && !this.ball.carrier.isStunned(this.nowMs) ? this.ball.carrier : null;
   }
 
+  isGoalkeeperInOwnPenalty(player) {
+    if (!player || player.role !== 'goalkeeper') return false;
+    return player.team.side === 'top' ? player.y < 285 : player.y > this.field.height - 285;
+  }
+
   select(player) {
     if (player?.isStunned(this.nowMs)) return;
     this.players.forEach(p => p.selected = false);
@@ -125,7 +130,7 @@ export class Game {
     if (!player || player.isStunned(this.nowMs)) return;
     player.idleSince = 0;
     const point = this.clampPlayerInsideField(p);
-    player.setDestination(point, undefined, true)
+    player.setDestination(point, undefined, true);
     this.tapMarker = { x: point.x, y: point.y, until: this.nowMs + 500 };
     this.preview = { from: player, to: point };
   }
@@ -501,7 +506,7 @@ export class Game {
   resolveLooseBall() {
     if (this.ball.carrier || this.ball.state === 'goal' || (this.ball.state === 'shot' && this.ball.speed > 250) || (this.ball.state === 'lob_pass' && this.ball.z > 14)) return;
     const eligible = pl => !pl.isStunned(this.nowMs) && !(pl === this.ball.lastKicker && this.nowMs < this.ball.pickupBlockedUntil);
-    const pickupRadius = pl => pl.role === 'goalkeeper' ? this.goalkeeperCollectionRadius : pl.radius + 14;
+    const pickupRadius = pl => (pl.role === 'goalkeeper' && this.isGoalkeeperInOwnPenalty(pl)) ? this.goalkeeperCollectionRadius : pl.radius + 14;
     const keeper = this.players.find(pl => pl.role === 'goalkeeper' && eligible(pl) && Math.hypot(pl.x - this.ball.x, pl.y - this.ball.y) < pickupRadius(pl));
     const receiver = this.ball.intendedReceiver;
     let p = keeper || null;
@@ -513,9 +518,9 @@ export class Game {
 
   checkDuel() {
     const carrier = this.ball.carrier;
-    if (!carrier || carrier.role === 'goalkeeper' || carrier.isStunned(this.nowMs) || this.nowMs < this.duelLockedUntil || this.nowMs < carrier.duelCooldownUntil) return;
-    const foe = this.primaryPresser;
-    if (!foe || foe.team === carrier.team || foe.role !== 'field' || foe.isStunned(this.nowMs) || this.nowMs < foe.duelCooldownUntil) return;
+    if (!carrier || (carrier.role === 'goalkeeper' && this.isGoalkeeperInOwnPenalty(carrier)) || carrier.isStunned(this.nowMs) || this.nowMs < this.duelLockedUntil || this.nowMs < carrier.duelCooldownUntil) return;
+    const foe = this.primaryPresser || this.players.find(p => p.team !== carrier.team && (p.role === 'field' || (p.role === 'goalkeeper' && !this.isGoalkeeperInOwnPenalty(p))) && !p.isStunned(this.nowMs));
+    if (!foe || foe.team === carrier.team || (foe.role === 'goalkeeper' && this.isGoalkeeperInOwnPenalty(foe)) || foe.isStunned(this.nowMs) || this.nowMs < foe.duelCooldownUntil) return;
     const distance = Math.hypot(foe.x - carrier.x, foe.y - carrier.y);
     const attackDir = carrier.team.side === 'bottom' ? -1 : 1;
     const inFront = (foe.y - carrier.y) * attackDir > -6;

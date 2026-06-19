@@ -17,7 +17,10 @@ export class Input {
     this.dragging = true; this.didDrag = false; this.pointerDownAt = performance.now(); this.start = this.pos(e); this.current = this.start;
     const hit = this.playerAt(this.start);
     this.dragPlayer = hit?.team === this.game.humanTeam ? hit : null;
-    if (this.dragPlayer) this.game.select(this.dragPlayer);
+    if (this.dragPlayer) {
+      this.game.preview = { from: this.dragPlayer, to: { x: this.dragPlayer.x, y: this.dragPlayer.y } };
+      this.game.select(this.dragPlayer);
+    }
   }
   move(e) {
     if (!this.dragging || this.game.paused) return;

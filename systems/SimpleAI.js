@@ -23,7 +23,7 @@ export class SimpleAI {
       const attacking = game.ball.carrier?.team === team;
       const carrier = game.ball.carrier?.team === team ? game.ball.carrier : null;
       const defensiveOrder = !attacking && game.ball.carrier
-        ? [...team.players].filter(p => p.role !== 'goalkeeper' && !p.isStunned(game.nowMs)).sort((a, b) => Math.hypot(a.x - game.ball.carrier.x, a.y - game.ball.carrier.y) - Math.hypot(b.x - game.ball.carrier.x, b.y - game.ball.carrier.y))
+        ? [...team.players].filter(p => (p.role !== 'goalkeeper' || !game.isGoalkeeperInOwnPenalty(p)) && !p.isStunned(game.nowMs)).sort((a, b) => Math.hypot(a.x - game.ball.carrier.x, a.y - game.ball.carrier.y) - Math.hypot(b.x - game.ball.carrier.x, b.y - game.ball.carrier.y))
         : [];
       if (defensiveOrder[0] && !game.primaryPresser) game.primaryPresser = defensiveOrder[0];
 
@@ -31,7 +31,7 @@ export class SimpleAI {
       for (const p of team.players) {
         if (p.selected || p.hasBall || p.isStunned(game.nowMs) || p.manualRunActive) continue;
         if (chasers.has(p)) { const chasePoint = p === game.ball.intendedReceiver && game.ball.predictedReceivePoint ? game.ball.predictedReceivePoint : game.ball; p.supportRole = p === game.ball.intendedReceiver ? 'intended receiver' : 'loose chase'; p.setDestination(game.clamp(chasePoint), undefined, false, 'ball_recovery'); continue; }
-        if (p.role === 'goalkeeper') {
+        if (p.role === 'goalkeeper' && game.isGoalkeeperInOwnPenalty(p)) {
           const homeY = team.side === 'top' ? 88 : 1412;
           const carrierThreat = game.ball.carrier && game.ball.carrier.team !== team && game.ball.carrier.role !== 'goalkeeper';
           const inPenalty = carrierThreat && (team.side === 'top' ? game.ball.carrier.y < 285 : game.ball.carrier.y > game.field.height - 285);
